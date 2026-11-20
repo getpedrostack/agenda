@@ -321,8 +321,14 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
   const copia = (x) => JSON.parse(JSON.stringify(x));
   const ehObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 
+  const LIMITE_NOTA = 500;
+  const LIMITE_FOTOS = 6;
+  const notaOk = (n) => n === undefined || (typeof n === 'string' && n.length <= LIMITE_NOTA);
+  const fotosOk = (f) => f === undefined || (Array.isArray(f) && f.length <= LIMITE_FOTOS &&
+    f.every((id) => typeof id === 'string' && id !== '') && new Set(f).size === f.length);
   const tarefaValida = (t) => ehObj(t) && typeof t.id === 'string' && t.id !== '' &&
-    typeof t.titulo === 'string' && typeof t.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.data);
+    typeof t.titulo === 'string' && typeof t.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.data) &&
+    notaOk(t.nota) && fotosOk(t.fotos);
   const COR_HEX = /^#[0-9a-f]{6}$/i;
   const catValida = (c) => ehObj(c) && ['id', 'nome'].every((k) => typeof c[k] === 'string' && c[k] !== '') &&
     typeof c.cor === 'string' && COR_HEX.test(c.cor);
@@ -346,7 +352,17 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
     };
   }
 
-  function novaTarefa({ titulo, data, hora, cat }, agora) {
+  function normalizarNota(texto) {
+    return typeof texto === 'string' ? texto.trim().slice(0, LIMITE_NOTA).trim() : '';
+  }
+
+  function idsFotos(tarefas) {
+    const ids = new Set();
+    for (const t of tarefas) for (const id of (t.fotos || [])) ids.add(id);
+    return [...ids];
+  }
+
+  function novaTarefa({ titulo, data, hora, cat, nota, fotos }, agora) {
     const t = typeof titulo === 'string' ? titulo.trim() : '';
     if (!t) throw new Error('titulo');
     return {
@@ -355,13 +371,15 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
       data,
       hora: hora || null,
       cat,
+      nota: normalizarNota(nota),
+      fotos: Array.isArray(fotos) ? fotos.slice() : [],
       feito: false,
       criadoEm: agora.getTime(),
     };
   }
 
-  function exportar(estado, agora) {
-    const dados = { app: 'agenda', versao: 1, exportadoEm: agora.toISOString(), tarefas: estado.tarefas, cats: estado.cats };
+  function exportar(estado, agora, fotos = {}) {
+    const dados = { app: 'agenda', versao: 2, exportadoEm: agora.toISOString(), tarefas: estado.tarefas, cats: estado.cats, fotos: Object.assign({}, fotos) };
     return { nome: 'agenda-backup-' + isoDia(agora) + '.json', conteudo: JSON.stringify(dados, null, 2) };
   }
 
@@ -369,9 +387,19 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
     if (!ehObj(obj) || obj.app !== 'agenda' || !Array.isArray(obj.tarefas)) {
       return { ok: false, erro: 'Este arquivo não é um backup da Agenda.' };
     }
+    if (obj.versao !== undefined && obj.versao !== 1 && obj.versao !== 2) {
+      return { ok: false, erro: 'Este arquivo não é um backup da Agenda.' };
+    }
     if (!obj.tarefas.every(tarefaValida)) return { ok: false, erro: 'Backup com compromisso inválido.' };
     if (!catsOk(obj.cats)) return { ok: false, erro: 'Backup com categoria inválida.' };
-    return { ok: true, tarefas: copia(obj.tarefas), cats: Array.isArray(obj.cats) ? copia(obj.cats) : copia(CATS_PADRAO) };
+    let fotos = {};
+    if (obj.versao === 2) {
+      if (!ehObj(obj.fotos) || !Object.values(obj.fotos).every((v) => typeof v === 'string' && v.startsWith('data:image/'))) {
+        return { ok: false, erro: 'Backup com foto inválida.' };
+      }
+      fotos = Object.assign({}, obj.fotos);
+    }
+    return { ok: true, tarefas: copia(obj.tarefas), cats: Array.isArray(obj.cats) ? copia(obj.cats) : copia(CATS_PADRAO), fotos };
   }
 
   function juntar(estado, backup) {
@@ -383,7 +411,7 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
     };
   }
 
-  globalThis.Nucleo = { isoDia, deIso, somaDias, inicioSemana, ordenarDia, montarLinha, rotuloLivres, semana, gradeMes, pontosDia, CATS_PADRAO, estadoInicial, carregar, novaTarefa, exportar, validarBackup, juntar };
+  globalThis.Nucleo = { isoDia, deIso, somaDias, inicioSemana, ordenarDia, montarLinha, rotuloLivres, semana, gradeMes, pontosDia, CATS_PADRAO, LIMITE_NOTA, LIMITE_FOTOS, normalizarNota, idsFotos, estadoInicial, carregar, novaTarefa, exportar, validarBackup, juntar };
 })();
 </script>
 <script id="ui">

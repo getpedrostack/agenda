@@ -92,7 +92,7 @@ test('exportar gera nome com o dia local e JSON formatado', () => {
   assert.equal(r.nome, 'agenda-backup-2026-11-19.json');
   const obj = JSON.parse(r.conteudo);
   assert.equal(obj.app, 'agenda');
-  assert.equal(obj.versao, 1);
+  assert.equal(obj.versao, 2);
   assert.equal(obj.exportadoEm, agora.toISOString());
   assert.equal(obj.tarefas.length, 1);
   assert.equal(obj.cats.length, 4);
