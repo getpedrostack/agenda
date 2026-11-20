@@ -484,31 +484,15 @@ function apagar(id) {
 const LIMIAR_GESTO = 10;
 function arrastarParaApagar(barra, id) {
   let pid = null, x0 = 0, y0 = 0, dx = 0, horizontal = false, arrastou = false;
-  barra.addEventListener('pointerdown', (e) => {
-    if (pid !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
-    pid = e.pointerId; x0 = e.clientX; y0 = e.clientY; dx = 0; horizontal = false; arrastou = false;
-  });
-  barra.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== pid) return;
-    const mx = e.clientX - x0, my = e.clientY - y0;
-    if (!horizontal) {
-      if (Math.abs(mx) < LIMIAR_GESTO && Math.abs(my) < LIMIAR_GESTO) return;
-      if (mx >= 0 || Math.abs(mx) <= Math.abs(my)) { pid = null; return; } // vertical ou para a direita: não é nosso
-      horizontal = arrastou = true;
-      barra.setPointerCapture(pid);
-      barra.classList.add('arrastando');
-    }
-    dx = Math.min(0, mx);
-    barra.style.transform = 'translateX(' + dx + 'px)';
-    barra.style.opacity = String(1 - Math.min(0.6, -dx / barra.offsetWidth));
-  });
-  const soltar = (e) => {
-    if (e.pointerId !== pid) return;
+  // Termina o gesto; só apaga num pointerup além de 40% da largura. Qualquer outro fim devolve a barra.
+  const terminar = (apagarAgora) => {
+    const era = horizontal;
     pid = null;
-    if (!horizontal) return;
+    horizontal = false;
+    if (!era) return;
     setTimeout(() => { arrastou = false; }, 0); // o clique, se vier, chega antes disto
     barra.classList.remove('arrastando');
-    if (e.type === 'pointerup' && -dx > barra.offsetWidth * 0.4) {
+    if (apagarAgora && -dx > barra.offsetWidth * 0.4) {
       barra.style.transform = 'translateX(-110%)';
       barra.style.opacity = '0';
       setTimeout(() => apagar(id), 180);
@@ -517,6 +501,33 @@ function arrastarParaApagar(barra, id) {
       barra.style.opacity = '';
     }
   };
+  barra.addEventListener('pointerdown', (e) => {
+    if (horizontal || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    // Um gesto anterior que não terminou aqui (soltou fora da barra) é descartado.
+    pid = e.pointerId; x0 = e.clientX; y0 = e.clientY; dx = 0; arrastou = false;
+  });
+  barra.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pid) return;
+    if (e.pointerType === 'mouse' && e.buttons === 0) { terminar(false); return; } // botão solto fora daqui
+    const mx = e.clientX - x0, my = e.clientY - y0;
+    if (!horizontal) {
+      if (Math.abs(mx) < LIMIAR_GESTO && Math.abs(my) < LIMIAR_GESTO) return;
+      if (mx >= 0 || Math.abs(mx) <= Math.abs(my)) { pid = null; return; } // vertical ou para a direita: não é nosso
+      try { barra.setPointerCapture(pid); } catch (err) { pid = null; return; }
+      horizontal = arrastou = true;
+      barra.classList.add('arrastando');
+    }
+    dx = Math.min(0, mx);
+    barra.style.transform = 'translateX(' + dx + 'px)';
+    barra.style.opacity = String(1 - Math.min(0.6, -dx / barra.offsetWidth));
+  });
+  const soltar = (e) => {
+    if (e.pointerId === pid) terminar(e.type === 'pointerup');
+  };
+  // Antes de virar gesto horizontal não há captura: sair da barra encerra a tentativa.
+  barra.addEventListener('pointerleave', (e) => { if (e.pointerId === pid && !horizontal) pid = null; });
+  // Só a perda da captura da própria barra (a captura implícita do toque, num filho, também borbulha).
+  barra.addEventListener('lostpointercapture', (e) => { if (e.target === barra) soltar(e); });
   barra.addEventListener('pointerup', soltar);
   barra.addEventListener('pointercancel', soltar);
   // O clique que o navegador gera depois de um arrasto não abre a folha nem marca feito.
