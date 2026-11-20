@@ -554,10 +554,21 @@ const Fotos = (() => {
   }
   // idsEmUso: lista ou função que devolve a lista. A função é chamada só depois de listar o banco,
   // para enxergar uma gravação que tenha terminado nesse meio-tempo.
-  async function limparOrfas(idsEmUso) {
+  // O id guarda o instante da criação (base36, 8 dígitos logo depois do 'f'); ids de outra origem dão null.
+  function criadoEm(id) {
+    const m = /^f([0-9a-z]{8})[0-9a-z]{1,6}$/.exec(String(id));
+    return m ? parseInt(m[1], 36) : null;
+  }
+  // true se o id é de agora há pouco (gravado por outra janela que ainda não salvou a tarefa).
+  function recente(id, carenciaMs, agora = Date.now()) {
+    const t = criadoEm(id);
+    return t !== null && t <= agora + 86400000 && agora - t < carenciaMs;
+  }
+  // carenciaMs: ids criados há menos que isso nunca são apagados (outra janela pode estar entre guardar e salvar).
+  async function limparOrfas(idsEmUso, carenciaMs = 0) {
     const todos = await listarIds();
     const emUso = new Set(typeof idsEmUso === 'function' ? idsEmUso() : idsEmUso);
-    await apagar(todos.filter((id) => !emUso.has(id)));
+    await apagar(todos.filter((id) => !emUso.has(id) && !(carenciaMs > 0 && recente(id, carenciaMs))));
   }
 
   // <img> carregado (sem decode()): dá as medidas pelo cabeçalho, sem decodificar a foto inteira.
@@ -629,7 +640,7 @@ const Fotos = (() => {
     return new Blob([bytes], { type: 'image/' + m[1] }); // sempre um tipo da lista, nunca o que veio no arquivo
   }
 
-  return Object.freeze({ novoId, guardar, ler, apagar, listarIds, reduzir, paraDataUrl, deDataUrl, limparOrfas });
+  return Object.freeze({ novoId, guardar, ler, apagar, listarIds, reduzir, paraDataUrl, deDataUrl, limparOrfas, criadoEm, recente });
 })();
 
 const boot = (() => {
@@ -1331,7 +1342,12 @@ function idsFotosEmUso() {
 }
 
 // Redesenha só as miniaturas; o botão e o "Preparando foto…" ficam no lugar (tirar do DOM perderia o foco).
+let focoDoCodigo = false;
 function desenharFotos() {
+  focoDoCodigo = true;
+  try { desenharFotosInterno(); } finally { focoDoCodigo = false; }
+}
+function desenharFotosInterno() {
   if (!folha) return;
   const n = fotosFolha.length;
   const antigas = [...$fotos.querySelectorAll('.foto')];
@@ -1912,7 +1928,11 @@ async function salvarFolha(e) {
     render();
     fecharPainel();
     avisarFalha(ok);
-    apagarFotosSemEsperar(removidas);
+    // Só apaga o que nada vivo (outra tarefa, folha, importação) ainda referencia, medido agora.
+    if (removidas.length) {
+      const vivas = new Set(idsFotosEmUso());
+      apagarFotosSemEsperar(removidas.filter((id) => !vivas.has(id)));
+    }
   } catch (err) {
     // Erro inesperado: a tarefa não gravada volta ao que era e as fotos recém-gravadas somem.
     console.warn('Agenda: erro ao salvar o compromisso', err);
@@ -1926,6 +1946,16 @@ async function salvarFolha(e) {
 }
 
 $form.addEventListener('submit', salvarFolha);
+// O usuário mexeu em outro lugar durante o "Preparando foto…": o foco não volta ao botão por conta própria.
+function largarFocoDoBotao(e) {
+  if (!folha || !folha.focoVoltaAoBotao) return;
+  if (e.type === 'focusin' && focoDoCodigo) return; // foco que o próprio desenharFotos pôs
+  if (e.type === 'pointerdown' && $btFoto.contains(e.target)) return;
+  folha.focoVoltaAoBotao = false;
+}
+document.addEventListener('focusin', largarFocoDoBotao);
+document.addEventListener('input', largarFocoDoBotao);
+document.addEventListener('pointerdown', largarFocoDoBotao);
 $titulo.addEventListener('input', atualizarSalvar);
 $nota.addEventListener('input', atualizarNota);
 $btFoto.addEventListener('click', () => { if (folha && !folha.preparando && !folha.salvando) $arquivoFoto.click(); });
@@ -2347,11 +2377,47 @@ try {
   if (p && p.catch) p.catch((e) => console.warn('Agenda: storage.persist falhou', e));
 } catch (e) { console.warn('Agenda: storage.persist falhou', e); }
 
+const CARENCIA_FOTOS_MS = 10 * 60 * 1000; // foto mais nova que isso pode estar sendo gravada por outra janela
+// Ids de fotos citados nas cópias de segurança (antesImportacao e corrompido*): "Baixar dados antigos" precisa deles.
+function idsFotosEmCopias() {
+  const ids = new Set();
+  const chaves = [CHAVE_ANTES_IMPORTACAO, ...chavesCorrompidas()];
+  for (const k of chaves) {
+    const texto = lerArmazenado(k);
+    if (!texto) continue;
+    let ok = false;
+    try {
+      const o = JSON.parse(texto);
+      if (o && Array.isArray(o.tarefas)) {
+        ok = true;
+        for (const t of o.tarefas) if (t && Array.isArray(t.fotos)) t.fotos.forEach((id) => { if (typeof id === 'string') ids.add(id); });
+      }
+    } catch (e) { /* texto ilegível: cai no regex */ }
+    if (!ok) for (const m of texto.matchAll(/"(f[0-9a-z]{6,})"/g)) ids.add(m[1]);
+  }
+  return ids;
+}
+async function limpezaDeFotosNoInicio() {
+  const emUso = () => new Set([...idsFotosEmUso(), ...idsFotosEmCopias()]);
+  await Fotos.limparOrfas(emUso, CARENCIA_FOTOS_MS);
+  // Ids que a tarefa cita mas que não têm foto no banco (e não são recentes) saem da lista: o 📷N não mente.
+  if (importando || fotosImportacao.length || folha) return;
+  const existem = new Set(await Fotos.listarIds());
+  if (importando || fotosImportacao.length || folha) return;
+  let mudou = false;
+  for (const t of estado.tarefas) {
+    if (!Array.isArray(t.fotos)) continue;
+    const ficam = t.fotos.filter((id) => existem.has(id) || Fotos.recente(id, CARENCIA_FOTOS_MS));
+    if (ficam.length !== t.fotos.length) { t.fotos = ficam; mudou = true; }
+  }
+  if (mudou) { salvar(); render(); }
+}
+
 render();
 irParaHoje(false);
-// Limpa fotos órfãs sem bloquear a tela. Só se o estado foi lido de verdade (senão tudo pareceria órfão).
+// Limpa fotos órfãs e tira da lista os ids sem foto, sem bloquear a tela. Só se o estado foi lido de verdade (senão tudo pareceria órfão).
 if (!leituraFalhou && textoCorrompido === null) {
-  Fotos.limparOrfas(idsFotosEmUso).catch((e) => console.warn('Agenda: limpeza de fotos falhou', e));
+  limpezaDeFotosNoInicio().catch((e) => console.warn('Agenda: limpeza de fotos falhou', e));
 }
 if (leituraFalhou) toast('Não foi possível ler os dados do aparelho.', { ms: 6000 });
 // agenda.v1 ilegível: guarda o texto à parte já no início (agenda.v1 fica intocado) e avisa uma vez.
