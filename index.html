@@ -100,7 +100,70 @@
     return { cores: doDia.slice(0, 3).map((t) => cor(t.cat)), mais: doDia.length > 3 };
   }
 
-  globalThis.Nucleo = { isoDia, deIso, somaDias, inicioSemana, ordenarDia, montarLinha, rotuloLivres, semana, gradeMes, pontosDia };
+  // ---- Estado, persistência e backup ----
+  const CATS_PADRAO = [
+    { id: 'pessoal', nome: 'Pessoal', cor: '#5bb8bd' },
+    { id: 'torrefacao', nome: 'Torrefação', cor: '#ba744d' },
+    { id: 'forro', nome: 'Forró', cor: '#da9c5e' },
+    { id: 'saude', nome: 'Saúde', cor: '#fad9b8' },
+  ];
+  const copia = (x) => JSON.parse(JSON.stringify(x));
+  const ehObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+
+  function estadoInicial() {
+    return { tarefas: [], cats: copia(CATS_PADRAO) };
+  }
+
+  function carregar(texto) {
+    if (texto === null || texto === undefined) return { estado: estadoInicial(), corrompido: false };
+    let obj;
+    try { obj = JSON.parse(texto); } catch (e) { obj = null; }
+    if (!ehObj(obj) || !Array.isArray(obj.tarefas)) return { estado: estadoInicial(), corrompido: true };
+    return {
+      estado: { tarefas: copia(obj.tarefas), cats: Array.isArray(obj.cats) ? copia(obj.cats) : copia(CATS_PADRAO) },
+      corrompido: false,
+    };
+  }
+
+  function novaTarefa({ titulo, data, hora, cat }, agora) {
+    const t = typeof titulo === 'string' ? titulo.trim() : '';
+    if (!t) throw new Error('titulo');
+    return {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      titulo: t,
+      data,
+      hora: hora || null,
+      cat,
+      feito: false,
+      criadoEm: agora.getTime(),
+    };
+  }
+
+  function exportar(estado, agora) {
+    const dados = { app: 'agenda', versao: 1, exportadoEm: agora.toISOString(), tarefas: estado.tarefas, cats: estado.cats };
+    return { nome: 'agenda-backup-' + isoDia(agora) + '.json', conteudo: JSON.stringify(dados, null, 2) };
+  }
+
+  function validarBackup(obj) {
+    if (!ehObj(obj) || obj.app !== 'agenda' || !Array.isArray(obj.tarefas)) {
+      return { ok: false, erro: 'Este arquivo não é um backup da Agenda.' };
+    }
+    const valida = (t) => ehObj(t) && t.id !== undefined && t.id !== null && t.id !== '' &&
+      typeof t.titulo === 'string' && typeof t.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.data);
+    if (!obj.tarefas.every(valida)) return { ok: false, erro: 'Backup com compromisso inválido.' };
+    return { ok: true, tarefas: copia(obj.tarefas), cats: Array.isArray(obj.cats) ? copia(obj.cats) : copia(CATS_PADRAO) };
+  }
+
+  function juntar(estado, backup) {
+    const ids = new Set(estado.tarefas.map((t) => t.id));
+    const catIds = new Set(estado.cats.map((c) => c.id));
+    return {
+      tarefas: copia(estado.tarefas).concat(copia((backup.tarefas || []).filter((t) => !ids.has(t.id)))),
+      cats: copia(estado.cats).concat(copia((backup.cats || []).filter((c) => !catIds.has(c.id)))),
+    };
+  }
+
+  globalThis.Nucleo = { isoDia, deIso, somaDias, inicioSemana, ordenarDia, montarLinha, rotuloLivres, semana, gradeMes, pontosDia, CATS_PADRAO, estadoInicial, carregar, novaTarefa, exportar, validarBackup, juntar };
 })();
 </script>
 </body>
