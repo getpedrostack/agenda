@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#0a1c20">
 <title>Agenda</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -1352,6 +1355,10 @@ irParaHoje(false);
 // agenda.v1 ilegível: guarda o texto à parte já no início (agenda.v1 fica intocado) e avisa uma vez.
 if (textoCorrompido !== null) {
   toast(guardarCorrompido() ? 'Dados antigos ilegíveis foram guardados à parte.' : MSG_FALHA, { ms: 6000 });
+}
+// PWA: service worker só em http(s) (em file:// não há SW).
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('Service worker não registrado:', e));
 }
 </script>
 </body>
