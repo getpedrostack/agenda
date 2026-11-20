@@ -204,7 +204,7 @@ textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em +
     <div class="folha-campos" id="folha-campos">
       <input class="fld" id="f-titulo" type="text" placeholder="O que é o compromisso?" aria-label="Título" enterkeyhint="done">
       <div class="lbl" id="lbl-nota">Anotação</div>
-      <textarea class="fld" id="f-nota" rows="3" maxlength="500" aria-labelledby="lbl-nota" aria-describedby="f-nota-cont" placeholder="Opcional"></textarea>
+      <textarea class="fld" id="f-nota" rows="3" aria-labelledby="lbl-nota" aria-describedby="f-nota-cont" placeholder="Opcional"></textarea>
       <div class="contador" id="f-nota-cont" hidden></div>
       <div class="lbl" id="lbl-dia">Dia</div>
       <div class="chips" id="f-dias" role="group" aria-labelledby="lbl-dia">
@@ -222,7 +222,7 @@ textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em +
         <button type="button" class="chip bt-foto" id="f-foto-bt">＋ Adicionar foto</button>
         <span class="preparando" id="f-preparando" role="status" hidden>Preparando foto…</span>
       </div>
-      <p class="fotos-aviso" id="f-fotos-limite" hidden>Limite de 6 fotos</p>
+      <p class="fotos-aviso" id="f-fotos-limite" hidden></p>
     </div>
     <div class="folha-acoes">
       <button type="button" class="bt-apagar" id="f-apagar">Apagar</button>
@@ -1163,6 +1163,9 @@ const $fotosLimite = document.getElementById('f-fotos-limite');
 const $arquivoFoto = document.getElementById('f-arquivo-foto');
 const ISO_DIA = /^\d{4}-\d{2}-\d{2}$/;
 const CONTADOR_A_PARTIR = 400; // o contador da anotação só aparece acima disto
+const TEXTO_LIMITE_FOTOS = 'Limite de ' + Nucleo.LIMITE_FOTOS + ' fotos';
+$nota.maxLength = Nucleo.LIMITE_NOTA;
+$fotosLimite.textContent = TEXTO_LIMITE_FOTOS;
 
 // { id, data, hora, cat, avulsa, urls, preparando, salvando, gravando, toastFoto } enquanto a folha de compromisso
 // está aberta. Cada abertura é um objeto novo: código assíncrono confere `folha === minha` antes de mexer.
@@ -1273,11 +1276,13 @@ function idsFotosEmUso() {
   return ids;
 }
 
+// Redesenha só as miniaturas; o botão e o "Preparando foto…" ficam no lugar (tirar do DOM perderia o foco).
 function desenharFotos() {
   if (!folha) return;
   const n = fotosFolha.length;
-  const focoEm = $fotos.contains(document.activeElement) && document.activeElement.classList.contains('foto')
-    ? [...$fotos.querySelectorAll('.foto')].indexOf(document.activeElement) : -1;
+  const antigas = [...$fotos.querySelectorAll('.foto')];
+  const focoEm = antigas.indexOf(document.activeElement);
+  const focoNoBotao = document.activeElement === $btFoto;
   const miniaturas = fotosFolha.map((foto, i) => {
     const b = el('button', 'foto');
     b.type = 'button';
@@ -1292,13 +1297,28 @@ function desenharFotos() {
     b.addEventListener('click', () => abrirVisualizador(i));
     return b;
   });
-  $fotos.replaceChildren(...miniaturas, $btFoto, $preparando);
+  // Ordem importa: o foco muda antes de o elemento focado sair ou sumir, senão o Chrome o solta no body.
+  $btFoto.before(...miniaturas);
   const cheio = n >= Nucleo.LIMITE_FOTOS;
-  $btFoto.hidden = cheio || !!folha.preparando;
+  const esconderBotao = cheio || !!folha.preparando;
+  const lugarDoBotao = () => miniaturas[n - 1] || $titulo; // para onde vai o foco com o botão escondido
+  if (focoEm >= 0) {
+    (miniaturas[Math.min(focoEm, n - 1)] || (esconderBotao ? $titulo : $btFoto)).focus({ preventScroll: true });
+  } else if (focoNoBotao && esconderBotao) {
+    lugarDoBotao().focus({ preventScroll: true });
+    if (folha.preparando) folha.focoVoltaAoBotao = true; // ao terminar de preparar, volta ao botão
+  }
+  antigas.forEach((b) => b.remove());
+  $btFoto.hidden = esconderBotao;
   $btFoto.disabled = !!folha.salvando;
   $preparando.hidden = !folha.preparando;
   $fotosLimite.hidden = !cheio;
-  if (focoEm >= 0) (miniaturas[Math.min(focoEm, n - 1)] || ($btFoto.hidden ? $titulo : $btFoto)).focus({ preventScroll: true });
+  if (!folha.preparando && folha.focoVoltaAoBotao) {
+    folha.focoVoltaAoBotao = false;
+    const a = document.activeElement;
+    const ondeDeixamos = a === document.body || a === $titulo || (a && a.classList.contains('foto') && $fotos.contains(a));
+    if (ondeDeixamos) ($btFoto.hidden ? lugarDoBotao() : $btFoto).focus({ preventScroll: true });
+  }
 }
 
 // Fotos já guardadas: lê do IndexedDB na ordem. Id que não existe mais sai da folha sem quebrar.
@@ -1364,7 +1384,7 @@ function removerFotoDaFolha(indice) {
     ms: 5000,
     acao: () => {
       if (folha !== minha || minha.salvando || fotosFolha.includes(foto)) { revogarFoto(foto); return; }
-      if (fotosFolha.length >= Nucleo.LIMITE_FOTOS) { revogarFoto(foto); toast('Limite de 6 fotos'); return; }
+      if (fotosFolha.length >= Nucleo.LIMITE_FOTOS) { revogarFoto(foto); toast(TEXTO_LIMITE_FOTOS); return; }
       fotosFolha.splice(Math.min(indice, fotosFolha.length), 0, foto);
       desenharFotos();
     },
@@ -1386,7 +1406,7 @@ function descartarFolha() {
   minha.urls.forEach((u) => URL.revokeObjectURL(u));
   minha.urls.clear();
   fotosFolha = [];
-  $fotos.replaceChildren($btFoto, $preparando);
+  $fotos.querySelectorAll('.foto').forEach((b) => b.remove());
 }
 
 // alvo: tarefa existente (editar), { data } (novo nesse dia) ou nada (novo hoje).
@@ -1405,6 +1425,7 @@ function abrirFolha(alvo) {
     salvando: false,   // gravando fotos no IndexedDB
     gravando: null,    // ids sendo gravados (a limpeza de órfãs não os apaga)
     toastFoto: null,   // aviso "Foto removida" desta folha
+    focoVoltaAoBotao: false, // o foco saiu do botão escondido durante o "Preparando foto…"
   };
   const existentes = edicao && Array.isArray(edicao.fotos) ? edicao.fotos.map((id) => ({ id, blob: null, url: null, nova: false })) : [];
   fotosFolha = existentes.slice();
@@ -1496,73 +1517,97 @@ function devolverFoco() {
 // Tudo vale ao salvar: 1) grava as fotos novas (falhou uma: nada é salvo); 2) grava a tarefa;
 // 3) só com a tarefa salva apaga as fotos removidas; 4) a tarefa não salvou: apaga as novas recém-gravadas.
 // Se a folha fechar durante a gravação (Voltar, outra janela), tudo é descartado.
+// Salvar não deu certo e a folha continua aberta: tudo volta a valer, e o foco que o Salvar
+// desabilitado soltou volta para ele.
+function liberarFolha(minha) {
+  minha.salvando = false;
+  minha.gravando = null;
+  atualizarSalvar();
+  desenharFotos();
+  if (document.activeElement === document.body && !$btSalvar.disabled) $btSalvar.focus({ preventScroll: true });
+}
 async function salvarFolha(e) {
   e.preventDefault();
   const minha = folha;
   if (!minha || minha.salvando || minha.preparando) return;
   const titulo = $titulo.value.trim();
   if (!titulo) return;
+  // Tudo lido antes da primeira espera: o que se salva é a folha no instante do toque.
+  const campos = { titulo, data: minha.data, hora: minha.hora, cat: minha.cat, nota: Nucleo.normalizarNota($nota.value) };
   const lista = fotosFolha.slice();
   const novas = lista.filter((f) => f.nova);
+  const ids = lista.map((f) => f.id);
+  const gravadas = [];
+  let persistido = false;
   minha.salvando = true;
   minha.gravando = novas.map((f) => f.id);
-  atualizarSalvar();
-  desenharFotos();
-  const gravadas = [];
   try {
-    for (const f of novas) {
-      if (folha !== minha) break; // fechou no meio: não grava o resto
-      await Fotos.guardar(f.id, f.blob);
-      gravadas.push(f.id);
+    atualizarSalvar();
+    desenharFotos();
+    try {
+      for (const f of novas) {
+        if (folha !== minha) break; // fechou no meio: não grava o resto
+        await Fotos.guardar(f.id, f.blob);
+        gravadas.push(f.id);
+      }
+    } catch (err) {
+      console.warn('Agenda: não consegui guardar as fotos', err);
+      apagarFotosSemEsperar(gravadas);
+      if (folha === minha) {
+        liberarFolha(minha);
+        avisarFotos();
+      }
+      return;
     }
-  } catch (err) {
-    console.warn('Agenda: não consegui guardar as fotos', err);
-    apagarFotosSemEsperar(gravadas);
-    if (folha === minha) {
-      minha.salvando = false;
-      minha.gravando = null;
-      atualizarSalvar();
-      desenharFotos();
-      avisarFotos();
-    }
-    return;
-  }
-  if (folha !== minha) { apagarFotosSemEsperar(gravadas); return; }
+    if (folha !== minha) { apagarFotosSemEsperar(gravadas); return; }
 
-  const nota = Nucleo.normalizarNota($nota.value);
-  const ids = lista.map((f) => f.id);
-  let ok;
-  let removidas = [];
-  if (minha.id) {
-    const t = estado.tarefas.find((x) => x.id === minha.id);
-    if (!t) { apagarFotosSemEsperar(gravadas); fecharPainel(); return; }
-    const tinhaFotos = Object.prototype.hasOwnProperty.call(t, 'fotos');
-    const antes = t.fotos;
-    t.titulo = titulo;
-    t.data = minha.data;
-    t.hora = minha.hora;
-    t.cat = minha.cat;
-    t.nota = nota;
-    t.fotos = ids;
-    ok = salvar();
-    if (ok) {
-      removidas = (antes || []).filter((id) => !ids.includes(id));
-    } else if (tinhaFotos) {
-      t.fotos = antes; // as fotos só mudam se a gravação der certo
+    let ok;
+    let removidas = [];
+    if (minha.id) {
+      const t = estado.tarefas.find((x) => x.id === minha.id);
+      if (!t) { apagarFotosSemEsperar(gravadas); fecharPainel(); return; }
+      const copia = Object.assign({}, t);
+      const restaurar = () => { Object.keys(t).forEach((k) => delete t[k]); Object.assign(t, copia); };
+      try {
+        Object.assign(t, campos, { fotos: ids });
+        ok = salvar();
+      } catch (err) { restaurar(); throw err; }
+      if (ok) {
+        removidas = (copia.fotos || []).filter((id) => !ids.includes(id));
+      } else if ('fotos' in copia) {
+        t.fotos = copia.fotos; // as fotos só mudam se a gravação der certo
+      } else {
+        delete t.fotos;
+      }
     } else {
-      delete t.fotos;
+      let nova = null;
+      try {
+        nova = Nucleo.novaTarefa(Object.assign({}, campos, { fotos: ids }), new Date());
+        estado.tarefas.push(nova);
+        ok = salvar();
+      } catch (err) {
+        const i = nova ? estado.tarefas.indexOf(nova) : -1;
+        if (i >= 0) estado.tarefas.splice(i, 1);
+        throw err;
+      }
+      if (!ok) nova.fotos = [];
     }
-  } else {
-    const nova = Nucleo.novaTarefa({ titulo, data: minha.data, hora: minha.hora, cat: minha.cat, nota, fotos: ids }, new Date());
-    estado.tarefas.push(nova);
-    ok = salvar();
-    if (!ok) nova.fotos = [];
+    persistido = ok;
+    if (!ok) apagarFotosSemEsperar(gravadas);
+    render();
+    fecharPainel();
+    avisarFalha(ok);
+    apagarFotosSemEsperar(removidas);
+  } catch (err) {
+    // Erro inesperado: a tarefa não gravada volta ao que era e as fotos recém-gravadas somem.
+    console.warn('Agenda: erro ao salvar o compromisso', err);
+    if (!persistido) apagarFotosSemEsperar(gravadas);
+    if (folha === minha) {
+      if (persistido) fecharPainel(); // já está no aparelho: só a tela falhou
+      else liberarFolha(minha);
+    }
+    if (!persistido) toast(MSG_FALHA);
   }
-  if (!ok) apagarFotosSemEsperar(gravadas);
-  render();
-  fecharPainel();
-  avisarFalha(ok);
-  apagarFotosSemEsperar(removidas);
 }
 
 $form.addEventListener('submit', salvarFolha);
