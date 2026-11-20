@@ -167,3 +167,26 @@ test('juntar adiciona só ids novos, sem mutar as entradas', () => {
   r.cats[0].nome = 'X';
   assert.equal(JSON.stringify(estado), antesE);
 });
+
+test('validarBackup recusa categoria inválida', () => {
+  for (const cats of [[null], [{ id: 5 }], [{}], 'x', [{ id: 'a', nome: 'A' }]]) {
+    const r = N.validarBackup({ app: 'agenda', versao: 1, tarefas: [], cats });
+    assert.equal(r.ok, false);
+    assert.equal(r.erro, 'Backup com categoria inválida.');
+  }
+});
+
+test('carregar trata elementos inválidos como corrompido', () => {
+  for (const o of [
+    { tarefas: [null] },
+    { tarefas: [{ id: 'a', titulo: 'x', data: '19/11/2026' }] },
+    { tarefas: [], cats: [null] },
+    { tarefas: [], cats: [{ id: 5 }] },
+  ]) {
+    const r = N.carregar(JSON.stringify(o));
+    assert.equal(r.corrompido, true, JSON.stringify(o));
+    assert.deepEqual(plano(r.estado.tarefas), []);
+    assert.equal(r.estado.cats.length, 4);
+  }
+  assert.equal(N.carregar('[1]').corrompido, true);
+});

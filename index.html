@@ -110,6 +110,11 @@
   const copia = (x) => JSON.parse(JSON.stringify(x));
   const ehObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 
+  const tarefaValida = (t) => ehObj(t) && typeof t.id === 'string' && t.id !== '' &&
+    typeof t.titulo === 'string' && typeof t.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.data);
+  const catValida = (c) => ehObj(c) && ['id', 'nome', 'cor'].every((k) => typeof c[k] === 'string' && c[k] !== '');
+  const catsOk = (cats) => cats === undefined || (Array.isArray(cats) && cats.every(catValida));
+
   function estadoInicial() {
     return { tarefas: [], cats: copia(CATS_PADRAO) };
   }
@@ -118,7 +123,9 @@
     if (texto === null || texto === undefined) return { estado: estadoInicial(), corrompido: false };
     let obj;
     try { obj = JSON.parse(texto); } catch (e) { obj = null; }
-    if (!ehObj(obj) || !Array.isArray(obj.tarefas)) return { estado: estadoInicial(), corrompido: true };
+    if (!ehObj(obj) || !Array.isArray(obj.tarefas) || !obj.tarefas.every(tarefaValida) || !catsOk(obj.cats)) {
+      return { estado: estadoInicial(), corrompido: true };
+    }
     return {
       estado: { tarefas: copia(obj.tarefas), cats: Array.isArray(obj.cats) ? copia(obj.cats) : copia(CATS_PADRAO) },
       corrompido: false,
@@ -148,9 +155,8 @@
     if (!ehObj(obj) || obj.app !== 'agenda' || !Array.isArray(obj.tarefas)) {
       return { ok: false, erro: 'Este arquivo não é um backup da Agenda.' };
     }
-    const valida = (t) => ehObj(t) && t.id !== undefined && t.id !== null && t.id !== '' &&
-      typeof t.titulo === 'string' && typeof t.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.data);
-    if (!obj.tarefas.every(valida)) return { ok: false, erro: 'Backup com compromisso inválido.' };
+    if (!obj.tarefas.every(tarefaValida)) return { ok: false, erro: 'Backup com compromisso inválido.' };
+    if (!catsOk(obj.cats)) return { ok: false, erro: 'Backup com categoria inválida.' };
     return { ok: true, tarefas: copia(obj.tarefas), cats: Array.isArray(obj.cats) ? copia(obj.cats) : copia(CATS_PADRAO) };
   }
 
