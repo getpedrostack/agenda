@@ -40,7 +40,6 @@ button:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .tabs .t-semana i{background:linear-gradient(90deg,transparent 30%,currentColor 30% 38%,transparent 38% 62%,currentColor 62% 70%,transparent 70%)}
 .tabs .t-mes i{background:radial-gradient(currentColor 1.2px,transparent 1.6px) 0 0/5px 5px}
 .fab{position:fixed;right:calc(16px + env(safe-area-inset-right));bottom:calc(var(--abas) + 14px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:18px;background:var(--acao);color:var(--tinta);font-size:30px;font-weight:500;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:5}
-.embreve{color:var(--dim);text-align:center;padding:80px 0;font-size:14px;font-weight:600}
 
 /* ---------- linha do tempo ---------- */
 .day{display:flex;align-items:center;gap:10px;padding:14px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:8px}
@@ -87,6 +86,25 @@ button:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .mini .ti{display:block;font-size:12px;font-weight:700;line-height:1.25;margin-top:2px;overflow-wrap:anywhere}
 .mini.feito .ti{text-decoration:line-through;opacity:.6}
 .livre{flex:1;min-height:60px;width:100%;border:1.5px dashed var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:22px}
+
+/* ---------- mês ---------- */
+.wkbar .seta{font-size:22px;line-height:1;font-weight:500;min-width:44px}
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;touch-action:pan-y;user-select:none;-webkit-user-select:none}
+.grid .wd{text-align:center;font-size:10px;font-weight:800;color:var(--dim);padding:4px 0 6px}
+.cell{aspect-ratio:1/1.12;border-radius:10px;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:6px 0 0;font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);position:relative;min-width:0}
+.cell.passado{color:var(--dim)}
+.cell.out{background:transparent;color:var(--border)}
+.cell.hoje{background:var(--acao);color:var(--tinta)}
+.cell.sel{outline:2px solid var(--caramelo);outline-offset:-2px}
+.cell .pts{display:flex;align-items:center;gap:2px;margin-top:5px;height:5px}
+.cell .pts i{width:5px;height:5px;border-radius:50%;background:var(--c,var(--acao));display:block}
+.cell .pts b{font-size:8px;line-height:5px;font-weight:800;color:var(--dim)}
+.cell.out .pts{opacity:.5}
+.cell.hoje .pts i{background:var(--tinta)}
+.cell.hoje .pts b{color:var(--tinta)}
+.mlist{padding:14px 0 0}
+.mlist h4{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--caramelo);margin-bottom:8px}
+.mlist .nada{font-size:12px;color:var(--dim);text-align:center;padding:2px 0 10px}
 
 /* ---------- folha de novo/editar ---------- */
 .veu{position:fixed;inset:0;background:rgba(3,10,12,.72);z-index:20;opacity:0;visibility:hidden;transition:opacity .22s,visibility 0s .22s}
@@ -369,6 +387,8 @@ let textoCorrompido = boot.textoCorrompido; // texto ruim ainda não guardado à
 let aba = ABAS.includes(lerArmazenado(CHAVE_ABA)) ? lerArmazenado(CHAVE_ABA) : 'linha';
 let diaAtual = hojeIso();
 let semanaInicio = null;    // domingo da semana visível (só na memória); null = semana de hoje
+let mesIso = null;          // dia 1 do mês visível (só na memória); null = ainda não escolhido
+let diaSel = null;          // dia selecionado no Mês
 let forcarHoje = false;     // "Hoje": a próxima desenhada da Semana rola até a coluna de hoje
 
 // Antes da primeira gravação, guarda o texto corrompido para nunca perdê-lo.
@@ -700,7 +720,127 @@ function renderSemana() {
     if (hojeCol) semanaEl.scrollLeft += hojeCol.getBoundingClientRect().left - semanaEl.getBoundingClientRect().left - 12;
   }
 }
-function renderMes() { $corpo.replaceChildren(el('p', 'embreve', 'Em breve')); }
+function primeiroDoMes(iso) {
+  const d = Nucleo.deIso(iso);
+  return Nucleo.isoDia(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+// Vai para o mês de `primeiro`; seleciona `dia`, ou hoje se for o mês atual, ou o dia 1.
+function irParaMes(primeiro, dia) {
+  mesIso = primeiro;
+  diaSel = dia || (primeiro === primeiroDoMes(diaAtual) ? diaAtual : primeiro);
+  $corpo.scrollTop = 0;
+  render();
+}
+function mudarMes(n) {
+  const d = Nucleo.deIso(mesIso);
+  irParaMes(Nucleo.isoDia(new Date(d.getFullYear(), d.getMonth() + n, 1)));
+}
+function selecionarDia(iso) {
+  if (primeiroDoMes(iso) !== mesIso) { irParaMes(primeiroDoMes(iso), iso); return; }
+  diaSel = iso;
+  render();
+}
+function rotuloCelula(iso, n) {
+  const d = Nucleo.deIso(iso);
+  return d.getDate() + ' de ' + MESES_LONGOS[d.getMonth()].toLowerCase() + ', ' + rotuloContagem(n).toLowerCase();
+}
+function elCelula(c, hoje) {
+  const n = estado.tarefas.filter((t) => t.data === c.data).length;
+  const cls = ['cell'];
+  if (c.data === hoje) cls.push('hoje');
+  else if (!c.doMes) cls.push('out');
+  else if (c.data < hoje) cls.push('passado');
+  if (c.data === diaSel) cls.push('sel');
+  const b = el('button', cls.join(' '));
+  b.type = 'button';
+  b.dataset.data = c.data;
+  b.setAttribute('aria-label', rotuloCelula(c.data, n));
+  b.setAttribute('aria-pressed', c.data === diaSel ? 'true' : 'false');
+  if (c.data === hoje) b.setAttribute('aria-current', 'date');
+  b.append(el('span', '', String(Nucleo.deIso(c.data).getDate())));
+  const p = Nucleo.pontosDia(estado.tarefas, c.data, estado.cats);
+  if (p.cores.length) {
+    const pts = el('span', 'pts');
+    pts.setAttribute('aria-hidden', 'true');
+    p.cores.forEach((cor) => { const i = el('i'); i.style.setProperty('--c', cor); pts.append(i); });
+    if (p.mais) pts.append(el('b', '', '+'));
+    b.append(pts);
+  }
+  b.addEventListener('click', () => selecionarDia(c.data));
+  return b;
+}
+// Arrastar a grade na horizontal (>60px) troca de mês; a vertical fica com o navegador (touch-action: pan-y).
+function arrastarMes(grade) {
+  let pid = null, x0 = 0, y0 = 0, horizontal = false, arrastou = false;
+  grade.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pid = e.pointerId; x0 = e.clientX; y0 = e.clientY; horizontal = arrastou = false;
+  });
+  grade.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pid || horizontal) return;
+    const mx = e.clientX - x0, my = e.clientY - y0;
+    if (Math.abs(mx) < LIMIAR_GESTO && Math.abs(my) < LIMIAR_GESTO) return;
+    if (Math.abs(mx) > Math.abs(my)) horizontal = arrastou = true; else pid = null;
+  });
+  grade.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== pid) return;
+    const dx = e.clientX - x0, era = horizontal;
+    pid = null; horizontal = false;
+    if (!era) return;
+    setTimeout(() => { arrastou = false; }, 0); // o clique, se vier, chega antes disto
+    if (Math.abs(dx) > 60) mudarMes(dx < 0 ? 1 : -1);
+  });
+  grade.addEventListener('pointercancel', (e) => { if (e.pointerId === pid) { pid = null; horizontal = false; } });
+  // O clique que o navegador gera depois de um arrasto não seleciona o dia.
+  grade.addEventListener('click', (e) => {
+    if (!arrastou) return;
+    arrastou = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+}
+function elListaDia(iso) {
+  const sec = el('section', 'mlist');
+  sec.dataset.data = iso;
+  sec.append(el('h4', '', DIAS_LONGOS[Nucleo.deIso(iso).getDay()] + ', ' + Nucleo.deIso(iso).getDate()));
+  const doDia = Nucleo.ordenarDia(estado.tarefas.filter((t) => t.data === iso));
+  if (!doDia.length) sec.append(el('p', 'nada', 'Nada marcado neste dia'));
+  const lista = el('div', 'tarefas');
+  doDia.forEach((t) => lista.append(elTarefa(t)));
+  sec.append(lista, elNovaNoDia(iso));
+  return sec;
+}
+function renderMes() {
+  if (mesIso === null) { mesIso = primeiroDoMes(diaAtual); diaSel = diaAtual; }
+  const antes = $corpo.querySelector('.grid');
+  const y = antes && antes.dataset.mes === mesIso ? $corpo.scrollTop : 0;
+  const d = Nucleo.deIso(mesIso);
+  const celulas = Nucleo.gradeMes(d.getFullYear(), d.getMonth());
+  const total = estado.tarefas.filter((t) => primeiroDoMes(t.data) === mesIso).length;
+
+  const barra = el('div', 'wkbar');
+  const ant = el('button', 'seta', '‹');
+  ant.type = 'button';
+  ant.setAttribute('aria-label', 'Mês anterior');
+  ant.addEventListener('click', () => mudarMes(-1));
+  const prox = el('button', 'seta', '›');
+  prox.type = 'button';
+  prox.setAttribute('aria-label', 'Próximo mês');
+  prox.addEventListener('click', () => mudarMes(1));
+  barra.append(ant, el('b', '', rotuloContagem(total)), prox);
+
+  const grade = el('div', 'grid');
+  grade.dataset.mes = mesIso;
+  DIAS_CURTOS.forEach((n) => {
+    const w = el('div', 'wd', n[0]);
+    w.setAttribute('aria-hidden', 'true');
+    grade.append(w);
+  });
+  celulas.forEach((c) => grade.append(elCelula(c, diaAtual)));
+  arrastarMes(grade);
+  $corpo.replaceChildren(barra, grade, elListaDia(diaSel));
+  $corpo.scrollTop = y;
+}
 
 function atualizarCabecalho() {
   document.getElementById('rotulo-aba').textContent = ROTULO_ABA[aba];
@@ -708,9 +848,12 @@ function atualizarCabecalho() {
     document.getElementById('rotulo-mes').textContent = tituloSemana(semanaInicio === null ? Nucleo.inicioSemana(diaAtual) : semanaInicio);
     return;
   }
-  const iso = aba === 'linha' ? diaNoTopo() : diaAtual;
-  const d = Nucleo.deIso(iso);
-  document.getElementById('rotulo-mes').textContent = aba === 'mes' ? MESES_LONGOS[d.getMonth()] + ' ' + d.getFullYear() : nomeMes(iso);
+  if (aba === 'mes') {
+    const m = Nucleo.deIso(mesIso === null ? diaAtual : mesIso);
+    document.getElementById('rotulo-mes').textContent = MESES_LONGOS[m.getMonth()] + ' ' + m.getFullYear();
+    return;
+  }
+  document.getElementById('rotulo-mes').textContent = nomeMes(diaNoTopo());
 }
 // Data da faixa de dia mais próxima do topo da rolagem (a última que já passou do topo).
 function diaNoTopo() {
@@ -737,6 +880,7 @@ function render() {
 // ---- navegação ----
 function irParaHoje(suave) {
   if (aba === 'semana') { semanaInicio = null; forcarHoje = true; } // volta à semana de hoje, com a coluna de hoje à vista
+  if (aba === 'mes') { mesIso = null; diaSel = null; }               // volta ao mês atual com hoje selecionado
   if (aba !== 'linha') { $corpo.scrollTop = 0; render(); return; }
   const sec = $corpo.querySelector('section.dia[data-data="' + diaAtual + '"]');
   if (sec) $corpo.scrollTo({ top: sec.offsetTop, behavior: suave ? 'smooth' : 'auto' });
@@ -881,7 +1025,7 @@ function devolverFoco() {
   let alvo = q && q.el && q.el !== document.body && q.el.isConnected ? q.el : null;
   if (!alvo && q && q.id) alvo = $corpo.querySelector('.task[data-id="' + CSS.escape(q.id) + '"] .abrir');
   if (!alvo && q && q.id) alvo = $corpo.querySelector('.mini[data-id="' + CSS.escape(q.id) + '"]');
-  if (!alvo && q && q.data) alvo = $corpo.querySelector('section.dia[data-data="' + q.data + '"] .gap, .col[data-data="' + q.data + '"] .livre');
+  if (!alvo && q && q.data) alvo = $corpo.querySelector('section.dia[data-data="' + q.data + '"] .gap, .mlist[data-data="' + q.data + '"] .gap, .col[data-data="' + q.data + '"] .livre');
   (alvo || $btNovo).focus({ preventScroll: true });
 }
 
@@ -961,9 +1105,12 @@ $folhaTopo.addEventListener('pointercancel', soltarAlca);
 // Stub preenchido pela Task 7.
 function abrirAjustes() { console.log('abrirAjustes (em breve)'); }
 
-// Virou o dia: redesenha e vai para hoje. Na Semana, só acompanha se a semana de hoje estava na tela.
+// Virou o dia: redesenha e vai para hoje. Na Semana, só acompanha se a semana de hoje estava na tela;
+// no Mês, se o mês atual estava na tela com o dia de hoje selecionado.
 function virar() {
-  const seguia = aba !== 'semana' || semanaInicio === Nucleo.inicioSemana(diaAtual);
+  const seguia = aba === 'semana' ? semanaInicio === Nucleo.inicioSemana(diaAtual)
+    : aba === 'mes' ? mesIso === primeiroDoMes(diaAtual) && diaSel === diaAtual
+    : true;
   render();
   if (seguia) irParaHoje(false);
 }
