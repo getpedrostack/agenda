@@ -798,7 +798,7 @@ function apagar(id) {
     ms: 5000,
     // Definitivo (tempo, outro aviso, fechar): as fotos saem, menos as que algo vivo ainda referencia.
     aoExpirar: () => {
-      if (!t.fotos || !t.fotos.length) return;
+      if (!ok || !t.fotos || !t.fotos.length) return; // apagamento não gravado: a tarefa volta no próximo boot, com as fotos
       const vivas = new Set(idsFotosEmUso());
       apagarFotosSemEsperar(t.fotos.filter((f) => !vivas.has(f)));
     },
@@ -1311,12 +1311,15 @@ function revogarFoto(foto) {
   if (folha) folha.urls.delete(foto.url);
   foto.url = null;
 }
+// Ids que uma importação em andamento vai usar: nenhum apagamento pendente pode levá-los.
+let fotosImportacao = [];
 function apagarFotosSemEsperar(ids) {
   if (ids.length) Fotos.apagar(ids).catch((e) => console.warn('Agenda: não consegui apagar fotos', e));
 }
 // Ids que a limpeza de órfãs nunca apaga: os do estado e os da folha aberta (inclusive os sendo gravados).
 function idsFotosEmUso() {
   const ids = Nucleo.idsFotos(estado.tarefas);
+  ids.push(...fotosImportacao);
   if (folha) {
     fotosFolha.forEach((f) => ids.push(f.id));
     if (folha.gravando) ids.push(...folha.gravando);
@@ -2212,15 +2215,15 @@ let importando = false;
 async function aplicarImportacao(backup, juntar) {
   if (importando) return;
   importando = true;
-  try { await importar(backup, juntar); } finally { importando = false; }
+  // Um "Desfazer" de apagar ainda pendente vira definitivo agora, antes de olhar o que existe no banco.
+  fecharToast();
+  fotosImportacao = Object.keys(backup.fotos || {});
+  try { await importar(backup, juntar); } finally { importando = false; fotosImportacao = []; }
 }
 async function importar(backup, juntar) {
-  const anterior = estado;
-  const antes = anterior.tarefas.length;
-  const novo = juntar ? Nucleo.juntar(anterior, backup) : { tarefas: backup.tarefas, cats: backup.cats };
-  // Fotos primeiro: só as que o estado resultante usa e que ainda não existem. Qualquer falha desfaz tudo.
+  // Fotos primeiro (as do arquivo que o banco ainda não tem). Qualquer falha desfaz tudo.
   const gravadas = [];
-  const usadas = Nucleo.idsFotos(novo.tarefas).filter((id) => Object.prototype.hasOwnProperty.call(backup.fotos || {}, id));
+  const usadas = Nucleo.idsFotos(backup.tarefas).filter((id) => Object.prototype.hasOwnProperty.call(backup.fotos || {}, id));
   if (usadas.length) {
     try {
       const jaTem = new Set(await Fotos.listarIds());
@@ -2238,6 +2241,10 @@ async function importar(backup, juntar) {
       return;
     }
   }
+  // O estado só é lido agora: mudanças feitas durante a gravação das fotos não se perdem.
+  const anterior = estado;
+  const antes = anterior.tarefas.length;
+  const novo = juntar ? Nucleo.juntar(anterior, backup) : { tarefas: backup.tarefas, cats: backup.cats };
   if (!gravarArmazenado(CHAVE_ANTES_IMPORTACAO, JSON.stringify(anterior))) {
     console.warn('Agenda: cópia de antes da importação não foi guardada; o Desfazer do aviso ainda vale.');
   }
