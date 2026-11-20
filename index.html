@@ -118,6 +118,7 @@ button:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .folha-topo{flex-shrink:0;padding:10px 16px 12px;touch-action:none;cursor:grab}
 .alca{display:block;width:40px;height:5px;border-radius:3px;background:var(--border);margin:0 auto 12px}
 .folha h2{font-size:17px;font-weight:900}
+.folha h2:focus{outline:none}
 .folha-form{flex:1;min-height:0;display:flex;flex-direction:column}
 .folha-campos{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px}
 .fld{display:block;width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:12px;font:inherit;font-size:15px;font-weight:600;color:var(--text);margin-bottom:10px;outline:none}
@@ -154,6 +155,9 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .aj-conf small{display:block;color:var(--dim);font-size:12px;line-height:1.35;margin-bottom:12px}
 .aj-conf .btn,.aj-conf .btn-sec,.aj-conf .bt-apagar{display:block;width:100%;flex:none;margin-bottom:8px}
 .aj-conf :last-child{margin-bottom:0}
+.aj-antigos{display:flex;align-items:center;gap:10px;margin-top:14px}
+.aj-antigos .aj-bk{flex:1;min-width:0;margin-bottom:0;color:var(--cobre)}
+.aj-antigos .btn-sec{flex:none;padding:11px 12px;font-size:13px}
 
 /* ---------- aviso (toast) ---------- */
 .toast{position:fixed;left:calc(12px + env(safe-area-inset-left));right:calc(84px + env(safe-area-inset-right));bottom:calc(var(--abas) + 14px + env(safe-area-inset-bottom));min-height:56px;display:flex;align-items:center;gap:6px;padding:6px 6px 6px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;font-weight:600;line-height:1.3;z-index:30;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s,transform .2s}
@@ -207,11 +211,11 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
   </form>
 </div>
 <div class="folha" id="ajustes" role="dialog" aria-modal="true" aria-labelledby="ajustes-titulo">
-  <div class="folha-topo" id="ajustes-topo"><i class="alca" aria-hidden="true"></i><h2 id="ajustes-titulo">Ajustes</h2></div>
+  <div class="folha-topo" id="ajustes-topo"><i class="alca" aria-hidden="true"></i><h2 id="ajustes-titulo" tabindex="-1">Ajustes</h2></div>
   <div class="folha-campos" id="ajustes-corpo"></div>
   <div class="folha-acoes"><button type="button" class="btn" id="aj-fechar">Fechar</button></div>
 </div>
-<input type="file" id="aj-arquivo" accept=".json,application/json" hidden>
+<input type="file" id="aj-arquivo" accept=".json,application/json,text/plain,application/octet-stream" hidden>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="nucleo">
 // Núcleo puro: datas e montagem das visualizações (sem DOM, sem storage).
@@ -404,14 +408,22 @@ function gravarArmazenado(chave, valor) {
 }
 
 const boot = (() => {
-  const texto = lerArmazenado(CHAVE);
+  let texto;
+  try {
+    texto = localStorage.getItem(CHAVE);
+  } catch (e) {
+    // Não deu para ler: abre vazio, mas sem gravar nada por cima do agenda.v1 que pode existir.
+    console.warn('Agenda: não consegui ler ' + CHAVE + '; gravações bloqueadas nesta sessão.', e);
+    return { estado: Nucleo.estadoInicial(), textoCorrompido: null, leituraFalhou: true };
+  }
   const r = Nucleo.carregar(texto);
   if (r.corrompido) console.warn('Agenda: agenda.v1 ilegível; abrindo vazio. O texto original será guardado em ' + CHAVE_CORROMPIDO + ' antes da primeira gravação.');
-  return { estado: r.estado, textoCorrompido: r.corrompido ? texto : null };
+  return { estado: r.estado, textoCorrompido: r.corrompido ? texto : null, leituraFalhou: false };
 })();
 
 let estado = boot.estado;
 let textoCorrompido = boot.textoCorrompido; // texto ruim ainda não guardado à parte
+let leituraFalhou = boot.leituraFalhou;     // agenda.v1 não pôde ser lido: nada é gravado por cima
 let aba = ABAS.includes(lerArmazenado(CHAVE_ABA)) ? lerArmazenado(CHAVE_ABA) : 'linha';
 let diaAtual = hojeIso();
 let semanaInicio = null;    // domingo da semana visível (só na memória); null = semana de hoje
@@ -430,6 +442,10 @@ function guardarCorrompido() {
   return true;
 }
 function salvar() {
+  if (leituraFalhou) {
+    console.warn('Agenda: gravação bloqueada porque ' + CHAVE + ' não pôde ser lido.');
+    return false;
+  }
   if (!guardarCorrompido()) {
     console.warn('Agenda: gravação adiada para não apagar o agenda.v1 corrompido.');
     return false;
@@ -1029,7 +1045,37 @@ function abrirFolha(alvo) {
   abrirPainel($folha, { id: folha.id, data }, $titulo);
 }
 
-// Ciclo de vida comum às folhas: foco, #app inerte, véu, devolução do foco e virada do dia adiada.
+// ---- Voltar do Android ----
+// Cada folha aberta empilha uma entrada no histórico: o Voltar (botão ou gesto) fecha a folha
+// em vez de sair do app. Fechada pela interface, a entrada é desfeita com history.back().
+let entradaPainel = false;  // a folha aberta tem uma entrada nossa no histórico
+let voltando = false;       // history.back() nosso cujo popstate ainda não chegou
+function empilharPainel() {
+  if (voltando) return; // abriu logo depois de fechar: o popstate do back pendente empilha
+  try {
+    history.pushState({ painel: 1 }, '');
+    entradaPainel = true;
+  } catch (e) { console.warn('Agenda: não consegui empilhar o histórico', e); }
+}
+function desempilharPainel() {
+  if (!entradaPainel) return;
+  entradaPainel = false;
+  voltando = true;
+  history.back();
+}
+addEventListener('popstate', () => {
+  if (voltando) { // é o nosso history.back()
+    voltando = false;
+    if (painel && !entradaPainel) empilharPainel();
+    return;
+  }
+  if (!painel) return;
+  entradaPainel = false; // o Voltar já consumiu a nossa entrada
+  if (painel === $ajustes && fecharConfirmacao()) { empilharPainel(); return; } // primeiro só a confirmação
+  fecharPainel();
+});
+
+// Ciclo de vida comum às folhas: foco, #app inerte, véu, devolução do foco, histórico e virada do dia adiada.
 function abrirPainel(elFolha, origem, foco) {
   painel = elFolha;
   quemAbriu = { el: document.activeElement, id: origem.id, data: origem.data };
@@ -1037,11 +1083,13 @@ function abrirPainel(elFolha, origem, foco) {
   $app.inert = true;
   $veu.classList.add('aberta');
   elFolha.classList.add('aberta');
+  empilharPainel();
   foco.focus();
 }
 
 function fecharPainel() {
   if (!painel) return;
+  desempilharPainel();
   folha = null;
   painel.classList.remove('aberta', 'arrastando');
   painel.style.transform = '';
@@ -1219,23 +1267,35 @@ function desenharAjustes() {
   exp.addEventListener('click', exportarBackup);
   const imp = el('button', 'btn-sec', 'Importar backup');
   imp.type = 'button';
+  imp.id = 'aj-importar';
   imp.addEventListener('click', () => $arquivo.click());
   botoes.append(exp, imp);
   secBk.append(lblBk, ajBackup, botoes);
+  if (chavesCorrompidas().length) {
+    const antigos = el('div', 'aj-antigos');
+    const baixar = el('button', 'btn-sec', 'Baixar dados antigos');
+    baixar.type = 'button';
+    baixar.addEventListener('click', baixarDadosAntigos);
+    antigos.append(el('p', 'aj-bk', 'Dados antigos ilegíveis'), baixar);
+    secBk.append(antigos);
+  }
   $ajCorpo.replaceChildren(secCats, secBk);
   desenharUltimoBackup();
 }
 
-function abrirAjustes() {
-  if (painel) return;
-  desenharAjustes();
-  $ajCorpo.scrollTop = 0;
-  abrirPainel($ajustes, {}, $ajustes.querySelector('.fld') || document.getElementById('aj-fechar'));
+// Chaves 'agenda.v1.corrompido*' guardadas quando o agenda.v1 estava ilegível, em ordem.
+function chavesCorrompidas() {
+  const chaves = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(CHAVE_CORROMPIDO)) chaves.push(k);
+    }
+  } catch (e) { console.warn('Agenda: não consegui listar o armazenamento', e); }
+  return chaves.sort();
 }
-
-function exportarBackup() {
-  const { nome, conteudo } = Nucleo.exportar(estado, new Date());
-  const url = URL.createObjectURL(new Blob([conteudo], { type: 'application/json' }));
+function baixarArquivo(nome, conteudo, tipo) {
+  const url = URL.createObjectURL(new Blob([conteudo], { type: tipo }));
   const a = el('a');
   a.href = url;
   a.download = nome;
@@ -1243,6 +1303,28 @@ function exportarBackup() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+// Uma chave: o texto cru dela. Várias: cada uma sob um cabeçalho com o nome da chave.
+function baixarDadosAntigos() {
+  const chaves = chavesCorrompidas();
+  if (!chaves.length) return;
+  const textos = chaves.map((k) => lerArmazenado(k) || '');
+  const conteudo = chaves.length === 1 ? textos[0] : chaves.map((k, i) => '===== ' + k + ' =====\n' + textos[i]).join('\n\n');
+  const nome = 'agenda-dados-antigos-' + Nucleo.isoDia(new Date()) + '.txt';
+  baixarArquivo(nome, conteudo, 'text/plain');
+  toast('Dados antigos salvos: ' + nome, { ms: 5000 });
+}
+
+function abrirAjustes() {
+  if (painel) return;
+  desenharAjustes();
+  $ajCorpo.scrollTop = 0;
+  abrirPainel($ajustes, {}, document.getElementById('ajustes-titulo')); // sem abrir o teclado sobre o backup
+}
+
+function exportarBackup() {
+  const { nome, conteudo } = Nucleo.exportar(estado, new Date());
+  baixarArquivo(nome, conteudo, 'application/json');
   gravarArmazenado(CHAVE_BACKUP, new Date().toISOString());
   desenharUltimoBackup();
   toast('Backup salvo: ' + nome, { ms: 5000 });
@@ -1255,7 +1337,7 @@ function fecharConfirmacao(devolverFoco = true) {
   ajConf = null;
   caixa.remove();
   secoes.forEach((s) => { s.inert = false; });
-  if (devolverFoco && painel === $ajustes) ($ajCorpo.querySelector('.btn-sec:last-child') || document.getElementById('aj-fechar')).focus();
+  if (devolverFoco && painel === $ajustes) (document.getElementById('aj-importar') || document.getElementById('aj-fechar')).focus();
   return true;
 }
 function pedirConfirmacao(backup) {
@@ -1284,9 +1366,15 @@ function pedirConfirmacao(backup) {
   $ajCorpo.scrollTop = 0;
   bCan.focus();
 }
+const CHAVE_ANTES_IMPORTACAO = 'agenda.v1.antesImportacao';
+// Antes de importar, guarda a agenda atual em CHAVE_ANTES_IMPORTACAO (sobrescrita a cada importação)
+// e oferece "Desfazer" no aviso.
 function aplicarImportacao(backup, juntar) {
   const anterior = estado;
   const antes = anterior.tarefas.length;
+  if (!gravarArmazenado(CHAVE_ANTES_IMPORTACAO, JSON.stringify(anterior))) {
+    console.warn('Agenda: cópia de antes da importação não foi guardada; o Desfazer do aviso ainda vale.');
+  }
   estado = juntar ? Nucleo.juntar(anterior, backup) : { tarefas: backup.tarefas, cats: backup.cats };
   if (!salvar()) {
     estado = anterior;
@@ -1297,7 +1385,17 @@ function aplicarImportacao(backup, juntar) {
   render();
   desenharAjustes();
   const n = estado.tarefas.length - antes;
-  toast('Backup importado: ' + (juntar ? plural(n, 'compromisso adicionado', 'compromissos adicionados') : plural(estado.tarefas.length, 'compromisso', 'compromissos')), { ms: 5000 });
+  toast('Backup importado: ' + (juntar ? plural(n, 'compromisso adicionado', 'compromissos adicionados') : plural(estado.tarefas.length, 'compromisso', 'compromissos')), {
+    rotulo: 'Desfazer',
+    ms: 8000,
+    acao: () => {
+      estado = anterior;
+      const ok = salvar();
+      render();
+      if (painel === $ajustes) desenharAjustes();
+      toast(ok ? 'Importação desfeita.' : MSG_FALHA);
+    },
+  });
   document.getElementById('aj-fechar').focus();
 }
 $arquivo.addEventListener('change', async () => {
@@ -1353,8 +1451,28 @@ addEventListener('resize', () => { if (aba === 'linha') ajustarFim(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tique(); });
 setInterval(tique, 60000);
 
+// Outra cópia aberta (ex.: a aba do navegador ao lado do app instalado) gravou: adota os dados dela,
+// para esta cópia não sobrescrever o que é mais novo. Texto ilegível ou apagado é ignorado.
+addEventListener('storage', (e) => {
+  if (e.key !== CHAVE || e.newValue === null) return;
+  const r = Nucleo.carregar(e.newValue);
+  if (r.corrompido) return;
+  if (painel) fecharPainel(); // a folha editaria objetos do estado antigo
+  estado = r.estado;
+  leituraFalhou = false; // agora há dados lidos de verdade
+  render();
+  toast('Agenda atualizada em outra janela.');
+});
+
+// Pede ao navegador para não despejar os dados quando o aparelho estiver sem espaço.
+try {
+  const p = navigator.storage && navigator.storage.persist && navigator.storage.persist();
+  if (p && p.catch) p.catch((e) => console.warn('Agenda: storage.persist falhou', e));
+} catch (e) { console.warn('Agenda: storage.persist falhou', e); }
+
 render();
 irParaHoje(false);
+if (leituraFalhou) toast('Não foi possível ler os dados do aparelho.', { ms: 6000 });
 // agenda.v1 ilegível: guarda o texto à parte já no início (agenda.v1 fica intocado) e avisa uma vez.
 if (textoCorrompido !== null) {
   toast(guardarCorrompido() ? 'Dados antigos ilegíveis foram guardados à parte.' : MSG_FALHA, { ms: 6000 });
