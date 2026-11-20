@@ -136,6 +136,22 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .btn:disabled{opacity:.4;cursor:default}
 .bt-apagar{border:1.5px solid var(--border);color:var(--caramelo);font-weight:800;border-radius:14px;padding:14px 18px;font-size:15px}
 
+/* ---------- ajustes ---------- */
+.aj-sec{margin-bottom:18px}
+.aj-sec[inert]{opacity:.35}
+.aj-cat{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.aj-cat .fld{flex:1;min-width:0;margin-bottom:0}
+.aj-dot{width:22px;height:22px;border-radius:50%;background:var(--c);flex-shrink:0;margin:0 4px}
+.aj-bk{font-size:13px;font-weight:600;color:var(--dim);margin-bottom:12px}
+.aj-bk.nenhum{color:var(--cobre)}
+.aj-botoes{display:flex;gap:10px}
+.btn-sec{flex:1;border:1.5px solid var(--acao);color:var(--acao);font-weight:800;border-radius:14px;padding:13px 8px;font-size:14px}
+.aj-conf{background:var(--surface-2);border:1.5px solid var(--border);border-radius:14px;padding:14px;margin-bottom:18px}
+.aj-conf p{font-weight:800;font-size:15px;margin-bottom:4px}
+.aj-conf small{display:block;color:var(--dim);font-size:12px;line-height:1.35;margin-bottom:12px}
+.aj-conf .btn,.aj-conf .btn-sec,.aj-conf .bt-apagar{display:block;width:100%;flex:none;margin-bottom:8px}
+.aj-conf :last-child{margin-bottom:0}
+
 /* ---------- aviso (toast) ---------- */
 .toast{position:fixed;left:calc(12px + env(safe-area-inset-left));right:calc(84px + env(safe-area-inset-right));bottom:calc(var(--abas) + 14px + env(safe-area-inset-bottom));min-height:56px;display:flex;align-items:center;gap:6px;padding:6px 6px 6px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;font-weight:600;line-height:1.3;z-index:30;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s,transform .2s}
 .toast.visivel{opacity:1;transform:none;pointer-events:auto}
@@ -187,6 +203,12 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
     </div>
   </form>
 </div>
+<div class="folha" id="ajustes" role="dialog" aria-modal="true" aria-labelledby="ajustes-titulo">
+  <div class="folha-topo" id="ajustes-topo"><i class="alca" aria-hidden="true"></i><h2 id="ajustes-titulo">Ajustes</h2></div>
+  <div class="folha-campos" id="ajustes-corpo"></div>
+  <div class="folha-acoes"><button type="button" class="btn" id="aj-fechar">Fechar</button></div>
+</div>
+<input type="file" id="aj-arquivo" accept=".json,application/json" hidden>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="nucleo">
 // Núcleo puro: datas e montagem das visualizações (sem DOM, sem storage).
@@ -913,7 +935,8 @@ const $btSalvar = document.getElementById('f-salvar');
 const $btNovo = document.getElementById('bt-novo');
 const ISO_DIA = /^\d{4}-\d{2}-\d{2}$/;
 
-let folha = null;           // { id, data, hora, cat, avulsa } enquanto a folha está aberta
+let folha = null;           // { id, data, hora, cat, avulsa } enquanto a folha de compromisso está aberta
+let painel = null;          // a folha aberta no momento (#folha ou #ajustes)
 let quemAbriu = null;       // para devolver o foco ao fechar
 let viradaPendente = false; // a meia-noite passou com a folha aberta
 
@@ -978,7 +1001,7 @@ function atualizarSalvar() { $btSalvar.disabled = !$titulo.value.trim(); }
 
 // alvo: tarefa existente (editar), { data } (novo nesse dia) ou nada (novo hoje).
 function abrirFolha(alvo) {
-  if (folha) return;
+  if (painel) return;
   const edicao = alvo && alvo.id ? estado.tarefas.find((t) => t.id === alvo.id) || null : null;
   const data = edicao ? edicao.data : alvo && alvo.data ? alvo.data : hojeIso();
   folha = {
@@ -988,7 +1011,6 @@ function abrirFolha(alvo) {
     cat: edicao ? edicao.cat : estado.cats[0] ? estado.cats[0].id : null,
     avulsa: data,
   };
-  quemAbriu = { el: document.activeElement, id: folha.id, data };
   document.getElementById('folha-titulo').textContent = edicao ? 'Editar compromisso' : 'Novo compromisso';
   $titulo.value = edicao ? edicao.titulo : '';
   $hora.value = folha.hora || '';
@@ -998,18 +1020,26 @@ function abrirFolha(alvo) {
   desenharCats();
   atualizarSalvar();
   document.getElementById('folha-campos').scrollTop = 0;
-  $folha.style.transform = '';
-  $app.inert = true;
-  $veu.classList.add('aberta');
-  $folha.classList.add('aberta');
-  $titulo.focus();
+  abrirPainel($folha, { id: folha.id, data }, $titulo);
 }
 
-function fecharFolha() {
-  if (!folha) return;
+// Ciclo de vida comum às folhas: foco, #app inerte, véu, devolução do foco e virada do dia adiada.
+function abrirPainel(elFolha, origem, foco) {
+  painel = elFolha;
+  quemAbriu = { el: document.activeElement, id: origem.id, data: origem.data };
+  elFolha.style.transform = '';
+  $app.inert = true;
+  $veu.classList.add('aberta');
+  elFolha.classList.add('aberta');
+  foco.focus();
+}
+
+function fecharPainel() {
+  if (!painel) return;
   folha = null;
-  $folha.classList.remove('aberta', 'arrastando');
-  $folha.style.transform = '';
+  painel.classList.remove('aberta', 'arrastando');
+  painel.style.transform = '';
+  painel = null;
   $veu.classList.remove('aberta');
   $app.inert = false;
   if (viradaPendente) {
@@ -1036,7 +1066,7 @@ function salvarFolha(e) {
   if (!titulo) return;
   if (folha.id) {
     const t = estado.tarefas.find((x) => x.id === folha.id);
-    if (!t) { fecharFolha(); return; }
+    if (!t) { fecharPainel(); return; }
     t.titulo = titulo;
     t.data = folha.data;
     t.hora = folha.hora;
@@ -1046,7 +1076,7 @@ function salvarFolha(e) {
   }
   const ok = salvar();
   render();
-  fecharFolha();
+  fecharPainel();
   avisarFalha(ok);
 }
 
@@ -1073,37 +1103,213 @@ $btApagar.addEventListener('click', () => {
   const id = folha && folha.id;
   if (!id) return;
   apagar(id);
-  fecharFolha();
+  fecharPainel();
 });
-$veu.addEventListener('click', fecharFolha);
+$veu.addEventListener('click', fecharPainel);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && folha) { e.preventDefault(); fecharFolha(); }
+  if (e.key !== 'Escape' || !painel) return;
+  e.preventDefault();
+  if (painel === $ajustes && fecharConfirmacao()) return; // Esc cancela primeiro a confirmação
+  fecharPainel();
 });
 // Arrastar o topo da folha (alça e título) para baixo além de 80px fecha.
 let alca = null;
-$folhaTopo.addEventListener('pointerdown', (e) => {
-  if (!folha || alca) return;
-  alca = { pid: e.pointerId, y0: e.clientY, dy: 0 };
-  $folhaTopo.setPointerCapture(e.pointerId);
-  $folha.classList.add('arrastando');
-});
-$folhaTopo.addEventListener('pointermove', (e) => {
-  if (!alca || e.pointerId !== alca.pid) return;
-  alca.dy = Math.max(0, e.clientY - alca.y0);
-  $folha.style.transform = 'translateY(' + alca.dy + 'px)';
-});
-const soltarAlca = (e) => {
-  if (!alca || e.pointerId !== alca.pid) return;
-  const fechar = e.type === 'pointerup' && alca.dy > 80;
-  alca = null;
-  $folha.classList.remove('arrastando');
-  if (fechar) fecharFolha(); else $folha.style.transform = '';
-};
-$folhaTopo.addEventListener('pointerup', soltarAlca);
-$folhaTopo.addEventListener('pointercancel', soltarAlca);
+function ligarAlca(topo, elFolha) {
+  topo.addEventListener('pointerdown', (e) => {
+    if (painel !== elFolha || alca) return;
+    alca = { pid: e.pointerId, y0: e.clientY, dy: 0 };
+    topo.setPointerCapture(e.pointerId);
+    elFolha.classList.add('arrastando');
+  });
+  topo.addEventListener('pointermove', (e) => {
+    if (!alca || e.pointerId !== alca.pid || painel !== elFolha) return;
+    alca.dy = Math.max(0, e.clientY - alca.y0);
+    elFolha.style.transform = 'translateY(' + alca.dy + 'px)';
+  });
+  const soltar = (e) => {
+    if (!alca || e.pointerId !== alca.pid) return;
+    const fechar = e.type === 'pointerup' && alca.dy > 80;
+    alca = null;
+    elFolha.classList.remove('arrastando');
+    if (fechar) fecharPainel(); else elFolha.style.transform = '';
+  };
+  topo.addEventListener('pointerup', soltar);
+  topo.addEventListener('pointercancel', soltar);
+}
+ligarAlca($folhaTopo, $folha);
 
-// Stub preenchido pela Task 7.
-function abrirAjustes() { console.log('abrirAjustes (em breve)'); }
+// ---- ajustes: categorias e backup ----
+const CHAVE_BACKUP = 'agenda.ultimoBackup';
+const $ajustes = document.getElementById('ajustes');
+const $ajCorpo = document.getElementById('ajustes-corpo');
+const $arquivo = document.getElementById('aj-arquivo');
+let ajBackup = null;   // elemento da linha "Último backup"
+let ajConf = null;     // { caixa, secoes } enquanto a confirmação de importação está aberta
+
+ligarAlca(document.getElementById('ajustes-topo'), $ajustes);
+document.getElementById('aj-fechar').addEventListener('click', fecharPainel);
+
+function plural(n, um, varios) { return n + ' ' + (n === 1 ? um : varios); }
+function textoUltimoBackup() {
+  const d = new Date(lerArmazenado(CHAVE_BACKUP) || NaN);
+  if (isNaN(d)) return null;
+  return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
+}
+function desenharUltimoBackup() {
+  const txt = textoUltimoBackup();
+  ajBackup.textContent = txt ? 'Último backup: ' + txt : 'Nenhum backup ainda';
+  ajBackup.classList.toggle('nenhum', !txt);
+}
+
+// Nome da categoria: ao sair do campo (ou Enter) apara; vazio volta ao nome anterior.
+function confirmarNomeCat(cat, campo) {
+  const nome = campo.value.trim();
+  if (!nome) {
+    campo.value = cat.nome;
+    toast('O nome não pode ficar vazio.');
+    return;
+  }
+  campo.value = nome;
+  if (nome === cat.nome) return;
+  cat.nome = nome;
+  const ok = salvar();
+  render();
+  avisarFalha(ok);
+}
+function elLinhaCat(cat) {
+  const lin = el('div', 'aj-cat');
+  const bolinha = el('i', 'aj-dot');
+  bolinha.style.setProperty('--c', cat.cor);
+  bolinha.setAttribute('aria-hidden', 'true');
+  const campo = el('input', 'fld');
+  campo.type = 'text';
+  campo.maxLength = 24;
+  campo.value = cat.nome;
+  campo.setAttribute('aria-label', 'Nome da categoria ' + cat.nome);
+  campo.enterKeyHint = 'done';
+  campo.addEventListener('blur', () => confirmarNomeCat(cat, campo));
+  campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); campo.blur(); } });
+  lin.append(bolinha, campo);
+  return lin;
+}
+
+function desenharAjustes() {
+  fecharConfirmacao(false);
+  const secCats = el('section', 'aj-sec');
+  secCats.setAttribute('aria-labelledby', 'aj-lbl-cats');
+  const lblCats = el('div', 'lbl', 'Categorias');
+  lblCats.id = 'aj-lbl-cats';
+  secCats.append(lblCats, ...estado.cats.map(elLinhaCat));
+
+  const secBk = el('section', 'aj-sec');
+  secBk.setAttribute('aria-labelledby', 'aj-lbl-bk');
+  const lblBk = el('div', 'lbl', 'Backup');
+  lblBk.id = 'aj-lbl-bk';
+  ajBackup = el('p', 'aj-bk');
+  ajBackup.id = 'aj-ultimo';
+  const botoes = el('div', 'aj-botoes');
+  const exp = el('button', 'btn-sec', 'Exportar backup');
+  exp.type = 'button';
+  exp.addEventListener('click', exportarBackup);
+  const imp = el('button', 'btn-sec', 'Importar backup');
+  imp.type = 'button';
+  imp.addEventListener('click', () => $arquivo.click());
+  botoes.append(exp, imp);
+  secBk.append(lblBk, ajBackup, botoes);
+  $ajCorpo.replaceChildren(secCats, secBk);
+  desenharUltimoBackup();
+}
+
+function abrirAjustes() {
+  if (painel) return;
+  desenharAjustes();
+  $ajCorpo.scrollTop = 0;
+  abrirPainel($ajustes, {}, $ajustes.querySelector('.fld') || document.getElementById('aj-fechar'));
+}
+
+function exportarBackup() {
+  const { nome, conteudo } = Nucleo.exportar(estado, new Date());
+  const url = URL.createObjectURL(new Blob([conteudo], { type: 'application/json' }));
+  const a = el('a');
+  a.href = url;
+  a.download = nome;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  gravarArmazenado(CHAVE_BACKUP, new Date().toISOString());
+  desenharUltimoBackup();
+  toast('Backup salvo: ' + nome, { ms: 5000 });
+}
+
+// Confirmação de importação, dentro da folha: as outras seções ficam inertes até responder.
+function fecharConfirmacao(devolverFoco = true) {
+  if (!ajConf) return false;
+  const { caixa, secoes } = ajConf;
+  ajConf = null;
+  caixa.remove();
+  secoes.forEach((s) => { s.inert = false; });
+  if (devolverFoco && painel === $ajustes) ($ajCorpo.querySelector('.btn-sec:last-child') || document.getElementById('aj-fechar')).focus();
+  return true;
+}
+function pedirConfirmacao(backup) {
+  fecharConfirmacao(false);
+  const n = backup.tarefas.length;
+  const caixa = el('div', 'aj-conf');
+  caixa.setAttribute('role', 'group');
+  caixa.setAttribute('aria-labelledby', 'aj-conf-t');
+  const t = el('p', '', plural(n, 'compromisso', 'compromissos') + ' no arquivo');
+  t.id = 'aj-conf-t';
+  const aviso = el('small', '', '"Substituir tudo" apaga os compromissos atuais. "Juntar" mantém os atuais e acrescenta os que faltam.');
+  const bSub = el('button', 'bt-apagar', 'Substituir tudo');
+  bSub.type = 'button';
+  const bJun = el('button', 'btn', 'Juntar');
+  bJun.type = 'button';
+  const bCan = el('button', 'btn-sec', 'Cancelar');
+  bCan.type = 'button';
+  bSub.addEventListener('click', () => aplicarImportacao(backup, false));
+  bJun.addEventListener('click', () => aplicarImportacao(backup, true));
+  bCan.addEventListener('click', () => fecharConfirmacao());
+  caixa.append(t, aviso, bSub, bJun, bCan);
+  const secoes = [...$ajCorpo.querySelectorAll('.aj-sec')];
+  secoes.forEach((s) => { s.inert = true; });
+  $ajCorpo.prepend(caixa);
+  ajConf = { caixa, secoes };
+  $ajCorpo.scrollTop = 0;
+  bCan.focus();
+}
+function aplicarImportacao(backup, juntar) {
+  const anterior = estado;
+  const antes = anterior.tarefas.length;
+  estado = juntar ? Nucleo.juntar(anterior, backup) : { tarefas: backup.tarefas, cats: backup.cats };
+  if (!salvar()) {
+    estado = anterior;
+    toast(MSG_FALHA);
+    fecharConfirmacao();
+    return;
+  }
+  render();
+  desenharAjustes();
+  const n = estado.tarefas.length - antes;
+  toast('Backup importado: ' + (juntar ? plural(n, 'compromisso adicionado', 'compromissos adicionados') : plural(estado.tarefas.length, 'compromisso', 'compromissos')), { ms: 5000 });
+  document.getElementById('aj-fechar').focus();
+}
+$arquivo.addEventListener('change', async () => {
+  const arquivo = $arquivo.files && $arquivo.files[0];
+  if (!arquivo) return;
+  let obj;
+  try {
+    obj = JSON.parse(await arquivo.text());
+  } catch (e) {
+    $arquivo.value = '';
+    toast('Este arquivo não é um backup da Agenda.');
+    return;
+  }
+  $arquivo.value = '';
+  const r = Nucleo.validarBackup(obj);
+  if (!r.ok) { toast(r.erro); return; }
+  if (painel === $ajustes) pedirConfirmacao(r);
+});
 
 // Virou o dia: redesenha e vai para hoje. Na Semana, só acompanha se a semana de hoje estava na tela;
 // no Mês, se o mês atual estava na tela com o dia de hoje selecionado.
@@ -1119,7 +1325,7 @@ function virar() {
 // Com a folha aberta, a virada espera ela fechar para não redesenhar nem rolar por baixo dela.
 function tique() {
   if (hojeIso() !== diaAtual) {
-    if (folha) { viradaPendente = true; return; }
+    if (painel) { viradaPendente = true; return; }
     virar();
   } else if (aba === 'linha') {
     atualizarAgora();
