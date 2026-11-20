@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#0a1c20">
 <title>Agenda</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -50,7 +50,8 @@ button:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .day.hoje .dnum{background:var(--acao);border-color:var(--acao);color:var(--tinta)}
 .day.hoje .dlbl{color:var(--acao)}
 .cnt{font-size:11px;color:var(--dim);font-family:var(--mono)}
-.task{display:flex;align-items:center;background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--c,var(--acao));border-radius:12px;margin-bottom:8px;min-width:0}
+.task{display:flex;align-items:center;background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--c,var(--acao));border-radius:12px;margin-bottom:8px;min-width:0;touch-action:pan-y;user-select:none;-webkit-user-select:none;transition:transform .18s ease,opacity .18s ease}
+.task.arrastando{transition:none}
 .task .abrir{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 0 12px 12px;text-align:left}
 .task .t{font-family:var(--mono);font-size:12px;color:var(--dim);width:40px;flex-shrink:0}
 .task .ti{flex:1;min-width:0;font-weight:700;font-size:14px;line-height:1.25;overflow-wrap:anywhere}
@@ -65,6 +66,45 @@ button:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .vazio{font-size:11px;color:var(--dim);text-align:center;padding:6px 0 2px;letter-spacing:.5px}
 .agora{display:flex;align-items:center;gap:6px;margin:-2px 0 8px;color:var(--cobre);font-size:10px;font-weight:800;font-family:var(--mono)}
 .agora:after{content:"";flex:1;height:2px;background:var(--cobre);border-radius:2px}
+
+/* ---------- folha de novo/editar ---------- */
+.veu{position:fixed;inset:0;background:rgba(3,10,12,.72);z-index:20;opacity:0;visibility:hidden;transition:opacity .22s,visibility 0s .22s}
+.veu.aberta{opacity:1;visibility:visible;transition:opacity .22s}
+.folha{position:fixed;left:0;right:0;bottom:0;margin:0 auto;max-width:560px;max-height:calc(100% - 24px - env(safe-area-inset-top));display:flex;flex-direction:column;background:var(--surface);border-top:1px solid var(--border);border-radius:24px 24px 0 0;z-index:21;transform:translateY(105%);visibility:hidden;transition:transform .22s ease,visibility 0s .22s}
+.folha.aberta{transform:none;visibility:visible;transition:transform .22s ease}
+.folha.arrastando{transition:none}
+.folha-topo{flex-shrink:0;padding:10px 16px 12px;touch-action:none;cursor:grab}
+.alca{display:block;width:40px;height:5px;border-radius:3px;background:var(--border);margin:0 auto 12px}
+.folha h2{font-size:17px;font-weight:900}
+.folha-form{flex:1;min-height:0;display:flex;flex-direction:column}
+.folha-campos{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px}
+.fld{display:block;width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:12px;padding:12px;font:inherit;font-size:15px;font-weight:600;color:var(--text);margin-bottom:10px;outline:none}
+.fld::placeholder{color:var(--dim);font-weight:500}
+.fld:focus{border-color:var(--acao);box-shadow:0 0 0 3px rgba(91,184,189,.18)}
+.lbl{font-size:10px;font-weight:800;letter-spacing:1.5px;color:var(--dim);text-transform:uppercase;margin:4px 0 6px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{font:inherit;font-size:12px;font-weight:700;padding:7px 11px;min-height:34px;border-radius:999px;border:1.5px solid var(--border);color:var(--dim);background:none}
+.chip[aria-pressed="true"],.chip.on{border-color:var(--acao);color:var(--acao);background:var(--acao-bg)}
+input.chip{font-family:var(--mono);min-width:96px;color-scheme:dark;outline:none}
+input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
+.outra{position:relative}
+.outra input{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0}
+.cores{display:flex;gap:12px;flex-wrap:wrap;padding:4px 2px;margin-bottom:12px}
+.cores button{width:30px;height:30px;border-radius:50%;background:var(--c)}
+.cores button[aria-pressed="true"]{box-shadow:0 0 0 3px var(--surface),0 0 0 5px var(--text)}
+.folha-acoes{flex-shrink:0;display:flex;gap:10px;padding:8px 16px calc(14px + env(safe-area-inset-bottom))}
+.btn{flex:1;background:var(--acao);color:var(--tinta);font-weight:900;border-radius:14px;padding:14px;font-size:15px}
+.btn:disabled{opacity:.4;cursor:default}
+.bt-apagar{border:1.5px solid var(--border);color:var(--caramelo);font-weight:800;border-radius:14px;padding:14px 18px;font-size:15px}
+
+/* ---------- aviso (toast) ---------- */
+.toast{position:fixed;left:calc(12px + env(safe-area-inset-left));right:calc(84px + env(safe-area-inset-right));bottom:calc(var(--abas) + 14px + env(safe-area-inset-bottom));min-height:56px;display:flex;align-items:center;gap:6px;padding:6px 6px 6px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:13px;font-weight:600;line-height:1.3;z-index:30;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s,transform .2s}
+.toast.visivel{opacity:1;transform:none;pointer-events:auto}
+.toast .msg{min-width:0}
+.toast .sep{color:var(--dim)}
+.toast button{color:var(--acao);font-weight:800;padding:0 10px;min-height:44px;flex-shrink:0}
+
+@media (prefers-reduced-motion:reduce){.veu,.folha,.toast,.task{transition:none!important}}
 </style>
 </head>
 <body>
@@ -84,6 +124,31 @@ button:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
   </nav>
   <button type="button" class="fab" id="bt-novo" aria-label="Nova tarefa">+</button>
 </div>
+<div class="veu" id="veu"></div>
+<div class="folha" id="folha" role="dialog" aria-modal="true" aria-labelledby="folha-titulo">
+  <div class="folha-topo" id="folha-topo"><i class="alca" aria-hidden="true"></i><h2 id="folha-titulo">Novo compromisso</h2></div>
+  <form class="folha-form" id="folha-form" novalidate autocomplete="off">
+    <div class="folha-campos" id="folha-campos">
+      <input class="fld" id="f-titulo" type="text" placeholder="O que é o compromisso?" aria-label="Título" enterkeyhint="done">
+      <div class="lbl" id="lbl-dia">Dia</div>
+      <div class="chips" id="f-dias" role="group" aria-labelledby="lbl-dia">
+        <span class="outra" id="f-outra"><button type="button" class="chip" id="f-outra-bt">📅 outra data</button><input type="date" id="f-data" tabindex="-1" aria-hidden="true"></span>
+      </div>
+      <div class="lbl" id="lbl-hora">Hora</div>
+      <div class="chips" role="group" aria-labelledby="lbl-hora">
+        <button type="button" class="chip" id="f-sem-hora">sem hora</button>
+        <input type="time" class="chip" id="f-hora" aria-label="Hora">
+      </div>
+      <div class="lbl" id="lbl-cat">Categoria</div>
+      <div class="cores" id="f-cats" role="group" aria-labelledby="lbl-cat"></div>
+    </div>
+    <div class="folha-acoes">
+      <button type="button" class="bt-apagar" id="f-apagar">Apagar</button>
+      <button type="submit" class="btn" id="f-salvar">Salvar</button>
+    </div>
+  </form>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="nucleo">
 // Núcleo puro: datas e montagem das visualizações (sem DOM, sem storage).
 (function () {
@@ -258,7 +323,9 @@ const CHAVE_ABA = 'agenda.aba';
 const ABAS = ['linha', 'semana', 'mes'];
 const COR_SEM_CAT = '#5bb8bd';
 const DIAS_LONGOS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const DIAS_CURTOS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const MESES_LONGOS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const MSG_FALHA = 'Não foi possível salvar no aparelho.';
 const ROTULO_ABA = { linha: 'Linha do tempo', semana: 'Semana', mes: 'Calendário' };
 
 // ---- armazenamento ----
@@ -344,6 +411,7 @@ function elTarefa(t) {
   ck.addEventListener('click', () => alternarFeito(t.id));
 
   barra.append(abrir, ck);
+  arrastarParaApagar(barra, t.id);
   return barra;
 }
 
@@ -351,8 +419,113 @@ function alternarFeito(id) {
   const t = estado.tarefas.find((x) => x.id === id);
   if (!t) return;
   t.feito = !t.feito;
-  salvar();
+  avisarFalha(salvar());
   render();
+}
+
+// ---- aviso (toast) ----
+// Um aviso por vez: um novo substitui o anterior, e a ação do anterior deixa de valer.
+const $toast = document.getElementById('toast');
+let toastAtual = null;
+function toast(msg, { acao, rotulo, ms = 4000 } = {}) {
+  fecharToast();
+  const meu = {};
+  toastAtual = meu;
+  $toast.replaceChildren(el('span', 'msg', msg));
+  if (acao) {
+    const sep = el('span', 'sep', '·');
+    sep.setAttribute('aria-hidden', 'true');
+    const bt = el('button', '', rotulo || 'OK');
+    bt.type = 'button';
+    bt.addEventListener('click', () => {
+      if (toastAtual !== meu) return;
+      fecharToast();
+      acao();
+    });
+    $toast.append(sep, bt);
+  }
+  $toast.classList.add('visivel');
+  meu.timer = setTimeout(() => { if (toastAtual === meu) fecharToast(); }, ms);
+}
+function fecharToast() {
+  if (!toastAtual) return;
+  clearTimeout(toastAtual.timer);
+  toastAtual = null;
+  $toast.classList.remove('visivel');
+  setTimeout(() => { if (!toastAtual) $toast.replaceChildren(); }, 250);
+}
+function avisarFalha(ok) {
+  if (!ok) toast(MSG_FALHA);
+  return ok;
+}
+
+// ---- apagar com desfazer ----
+// Desfazer devolve o mesmo objeto (mesmo id). Um novo aviso torna definitivo o apagamento anterior.
+function apagar(id) {
+  const i = estado.tarefas.findIndex((t) => t.id === id);
+  if (i < 0) return;
+  const [t] = estado.tarefas.splice(i, 1);
+  const ok = salvar();
+  render();
+  toast(ok ? 'Compromisso apagado' : MSG_FALHA, {
+    rotulo: 'Desfazer',
+    ms: 5000,
+    acao: () => {
+      if (estado.tarefas.some((x) => x.id === t.id)) return;
+      estado.tarefas.splice(Math.min(i, estado.tarefas.length), 0, t);
+      avisarFalha(salvar());
+      render();
+    },
+  });
+}
+
+// Arrastar a barra para a esquerda além de 40% da largura apaga; menos que isso, ela volta.
+// Com touch-action: pan-y a rolagem vertical continua com o navegador; só o gesto horizontal é nosso.
+const LIMIAR_GESTO = 10;
+function arrastarParaApagar(barra, id) {
+  let pid = null, x0 = 0, y0 = 0, dx = 0, horizontal = false, arrastou = false;
+  barra.addEventListener('pointerdown', (e) => {
+    if (pid !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    pid = e.pointerId; x0 = e.clientX; y0 = e.clientY; dx = 0; horizontal = false; arrastou = false;
+  });
+  barra.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== pid) return;
+    const mx = e.clientX - x0, my = e.clientY - y0;
+    if (!horizontal) {
+      if (Math.abs(mx) < LIMIAR_GESTO && Math.abs(my) < LIMIAR_GESTO) return;
+      if (mx >= 0 || Math.abs(mx) <= Math.abs(my)) { pid = null; return; } // vertical ou para a direita: não é nosso
+      horizontal = arrastou = true;
+      barra.setPointerCapture(pid);
+      barra.classList.add('arrastando');
+    }
+    dx = Math.min(0, mx);
+    barra.style.transform = 'translateX(' + dx + 'px)';
+    barra.style.opacity = String(1 - Math.min(0.6, -dx / barra.offsetWidth));
+  });
+  const soltar = (e) => {
+    if (e.pointerId !== pid) return;
+    pid = null;
+    if (!horizontal) return;
+    setTimeout(() => { arrastou = false; }, 0); // o clique, se vier, chega antes disto
+    barra.classList.remove('arrastando');
+    if (e.type === 'pointerup' && -dx > barra.offsetWidth * 0.4) {
+      barra.style.transform = 'translateX(-110%)';
+      barra.style.opacity = '0';
+      setTimeout(() => apagar(id), 180);
+    } else {
+      barra.style.transform = '';
+      barra.style.opacity = '';
+    }
+  };
+  barra.addEventListener('pointerup', soltar);
+  barra.addEventListener('pointercancel', soltar);
+  // O clique que o navegador gera depois de um arrasto não abre a folha nem marca feito.
+  barra.addEventListener('click', (e) => {
+    if (!arrastou) return;
+    arrastou = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
 }
 
 function elFaixaDia(iso, n, ehHoje) {
@@ -465,13 +638,221 @@ function trocarAba(nova) {
   irParaHoje(false);
 }
 
-// Stubs preenchidos pelas próximas tarefas.
-function abrirFolha(alvo) { console.log('abrirFolha (em breve)', alvo); }
+// ---- folha de novo/editar ----
+const $app = document.getElementById('app');
+const $veu = document.getElementById('veu');
+const $folha = document.getElementById('folha');
+const $folhaTopo = document.getElementById('folha-topo');
+const $form = document.getElementById('folha-form');
+const $titulo = document.getElementById('f-titulo');
+const $dias = document.getElementById('f-dias');
+const $outra = document.getElementById('f-outra');
+const $data = document.getElementById('f-data');
+const $semHora = document.getElementById('f-sem-hora');
+const $hora = document.getElementById('f-hora');
+const $cats = document.getElementById('f-cats');
+const $btApagar = document.getElementById('f-apagar');
+const $btSalvar = document.getElementById('f-salvar');
+const $btNovo = document.getElementById('bt-novo');
+const ISO_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+let folha = null;           // { id, data, hora, cat, avulsa } enquanto a folha está aberta
+let quemAbriu = null;       // para devolver o foco ao fechar
+let viradaPendente = false; // a meia-noite passou com a folha aberta
+
+function rotuloDiaCurto(iso) {
+  const d = Nucleo.deIso(iso);
+  return DIAS_CURTOS[d.getDay()] + ' ' + d.getDate();
+}
+function rotuloDataAvulsa(iso) {
+  const d = Nucleo.deIso(iso);
+  const ano = d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : '';
+  return rotuloDiaCurto(iso) + ' ' + MESES_LONGOS[d.getMonth()].slice(0, 3).toLowerCase() + ano;
+}
+function elChip(rotulo, ligado, aoTocar) {
+  const b = el('button', 'chip', rotulo);
+  b.type = 'button';
+  b.setAttribute('aria-pressed', ligado ? 'true' : 'false');
+  b.addEventListener('click', aoTocar);
+  return b;
+}
+
+// Hoje, Amanhã, os 3 dias seguintes e, se a data da tarefa (ou a escolhida em "outra data")
+// não for nenhum deles, um chip com ela.
+function desenharDias() {
+  const hoje = hojeIso();
+  const opcoes = [0, 1, 2, 3, 4].map((n) => {
+    const iso = Nucleo.somaDias(hoje, n);
+    return { iso, rotulo: n === 0 ? 'Hoje' : n === 1 ? 'Amanhã' : rotuloDiaCurto(iso) };
+  });
+  if (folha.avulsa && !opcoes.some((o) => o.iso === folha.avulsa)) {
+    opcoes.push({ iso: folha.avulsa, rotulo: rotuloDataAvulsa(folha.avulsa) });
+  }
+  const focado = $dias.contains(document.activeElement) ? document.activeElement.dataset.iso : undefined;
+  $dias.querySelectorAll('.chip-dia').forEach((b) => b.remove());
+  for (const o of opcoes) {
+    const b = elChip(o.rotulo, o.iso === folha.data, () => { folha.data = o.iso; desenharDias(); });
+    b.classList.add('chip-dia');
+    b.dataset.iso = o.iso;
+    $outra.before(b);
+    if (o.iso === focado) b.focus();
+  }
+}
+function desenharHora() {
+  $semHora.setAttribute('aria-pressed', folha.hora ? 'false' : 'true');
+  $hora.classList.toggle('on', !!folha.hora);
+}
+function desenharCats() {
+  $cats.replaceChildren(...estado.cats.map((c) => {
+    const b = el('button');
+    b.type = 'button';
+    b.dataset.cat = c.id;
+    b.setAttribute('aria-label', c.nome);
+    b.style.setProperty('--c', c.cor);
+    b.addEventListener('click', () => { folha.cat = c.id; marcarCat(); });
+    return b;
+  }));
+  marcarCat();
+}
+function marcarCat() {
+  $cats.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.cat === folha.cat ? 'true' : 'false'));
+}
+function atualizarSalvar() { $btSalvar.disabled = !$titulo.value.trim(); }
+
+// alvo: tarefa existente (editar), { data } (novo nesse dia) ou nada (novo hoje).
+function abrirFolha(alvo) {
+  if (folha) return;
+  const edicao = alvo && alvo.id ? estado.tarefas.find((t) => t.id === alvo.id) || null : null;
+  const data = edicao ? edicao.data : alvo && alvo.data ? alvo.data : hojeIso();
+  folha = {
+    id: edicao ? edicao.id : null,
+    data,
+    hora: edicao ? edicao.hora || null : null,
+    cat: edicao ? edicao.cat : estado.cats[0] ? estado.cats[0].id : null,
+    avulsa: data,
+  };
+  quemAbriu = { el: document.activeElement, id: folha.id, data };
+  document.getElementById('folha-titulo').textContent = edicao ? 'Editar compromisso' : 'Novo compromisso';
+  $titulo.value = edicao ? edicao.titulo : '';
+  $hora.value = folha.hora || '';
+  $btApagar.hidden = !edicao;
+  desenharDias();
+  desenharHora();
+  desenharCats();
+  atualizarSalvar();
+  document.getElementById('folha-campos').scrollTop = 0;
+  $folha.style.transform = '';
+  $app.inert = true;
+  $veu.classList.add('aberta');
+  $folha.classList.add('aberta');
+  $titulo.focus();
+}
+
+function fecharFolha() {
+  if (!folha) return;
+  folha = null;
+  $folha.classList.remove('aberta', 'arrastando');
+  $folha.style.transform = '';
+  $veu.classList.remove('aberta');
+  $app.inert = false;
+  if (viradaPendente) {
+    viradaPendente = false;
+    render();
+    irParaHoje(false);
+  }
+  devolverFoco();
+}
+// Volta ao elemento que abriu a folha; se ele foi redesenhado, à barra da tarefa ou ao "+ tarefa" do dia.
+function devolverFoco() {
+  const q = quemAbriu;
+  quemAbriu = null;
+  let alvo = q && q.el && q.el !== document.body && q.el.isConnected ? q.el : null;
+  if (!alvo && q && q.id) alvo = $corpo.querySelector('.task[data-id="' + CSS.escape(q.id) + '"] .abrir');
+  if (!alvo && q && q.data) alvo = $corpo.querySelector('section.dia[data-data="' + q.data + '"] .gap');
+  (alvo || $btNovo).focus({ preventScroll: true });
+}
+
+function salvarFolha(e) {
+  e.preventDefault();
+  if (!folha) return;
+  const titulo = $titulo.value.trim();
+  if (!titulo) return;
+  if (folha.id) {
+    const t = estado.tarefas.find((x) => x.id === folha.id);
+    if (!t) { fecharFolha(); return; }
+    t.titulo = titulo;
+    t.data = folha.data;
+    t.hora = folha.hora;
+    t.cat = folha.cat;
+  } else {
+    estado.tarefas.push(Nucleo.novaTarefa({ titulo, data: folha.data, hora: folha.hora, cat: folha.cat }, new Date()));
+  }
+  const ok = salvar();
+  render();
+  fecharFolha();
+  avisarFalha(ok);
+}
+
+$form.addEventListener('submit', salvarFolha);
+$titulo.addEventListener('input', atualizarSalvar);
+$semHora.addEventListener('click', () => { folha.hora = null; $hora.value = ''; desenharHora(); });
+const lerHora = () => {
+  if (!folha) return;
+  folha.hora = /^\d{2}:\d{2}/.test($hora.value) ? $hora.value.slice(0, 5) : null;
+  desenharHora();
+};
+$hora.addEventListener('input', lerHora);
+$hora.addEventListener('change', lerHora);
+document.getElementById('f-outra-bt').addEventListener('click', () => {
+  $data.value = folha.data;
+  try { $data.showPicker(); } catch (err) { $data.focus(); $data.click(); }
+});
+$data.addEventListener('change', () => {
+  if (!folha || !ISO_DIA.test($data.value)) return;
+  folha.data = folha.avulsa = $data.value;
+  desenharDias();
+});
+$btApagar.addEventListener('click', () => {
+  const id = folha && folha.id;
+  if (!id) return;
+  apagar(id);
+  fecharFolha();
+});
+$veu.addEventListener('click', fecharFolha);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && folha) { e.preventDefault(); fecharFolha(); }
+});
+// Arrastar o topo da folha (alça e título) para baixo além de 80px fecha.
+let alca = null;
+$folhaTopo.addEventListener('pointerdown', (e) => {
+  if (!folha || alca) return;
+  alca = { pid: e.pointerId, y0: e.clientY, dy: 0 };
+  $folhaTopo.setPointerCapture(e.pointerId);
+  $folha.classList.add('arrastando');
+});
+$folhaTopo.addEventListener('pointermove', (e) => {
+  if (!alca || e.pointerId !== alca.pid) return;
+  alca.dy = Math.max(0, e.clientY - alca.y0);
+  $folha.style.transform = 'translateY(' + alca.dy + 'px)';
+});
+const soltarAlca = (e) => {
+  if (!alca || e.pointerId !== alca.pid) return;
+  const fechar = e.type === 'pointerup' && alca.dy > 80;
+  alca = null;
+  $folha.classList.remove('arrastando');
+  if (fechar) fecharFolha(); else $folha.style.transform = '';
+};
+$folhaTopo.addEventListener('pointerup', soltarAlca);
+$folhaTopo.addEventListener('pointercancel', soltarAlca);
+
+// Stub preenchido pela Task 7.
 function abrirAjustes() { console.log('abrirAjustes (em breve)'); }
 
 // Recalcula "hoje" (meia-noite, volta do segundo plano) e o traço "agora".
+// Com a folha aberta, a virada espera ela fechar para não redesenhar nem rolar por baixo dela.
 function tique() {
   if (hojeIso() !== diaAtual) {
+    if (folha) { viradaPendente = true; return; }
     render();
     irParaHoje(false);
   } else if (aba === 'linha') {
@@ -483,7 +864,7 @@ function tique() {
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => trocarAba(b.dataset.aba)));
 document.getElementById('bt-hoje').addEventListener('click', () => irParaHoje(true));
 document.getElementById('bt-ajustes').addEventListener('click', () => abrirAjustes());
-document.getElementById('bt-novo').addEventListener('click', () => abrirFolha({ data: hojeIso() }));
+$btNovo.addEventListener('click', () => abrirFolha());
 let cabecalhoPendente = false;
 $corpo.addEventListener('scroll', () => {
   if (aba !== 'linha' || cabecalhoPendente) return;
@@ -496,6 +877,10 @@ setInterval(tique, 60000);
 
 render();
 irParaHoje(false);
+// agenda.v1 ilegível: guarda o texto à parte já no início (agenda.v1 fica intocado) e avisa uma vez.
+if (textoCorrompido !== null) {
+  toast(guardarCorrompido() ? 'Dados antigos ilegíveis foram guardados à parte.' : MSG_FALHA, { ms: 6000 });
+}
 </script>
 </body>
 </html>
