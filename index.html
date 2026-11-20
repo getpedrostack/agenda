@@ -177,7 +177,19 @@ textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em +
 .toast .sep{color:var(--dim)}
 .toast button{color:var(--acao);font-weight:800;padding:0 10px;min-height:44px;flex-shrink:0}
 
-@media (prefers-reduced-motion:reduce){.veu,.folha,.toast,.task{transition:none!important}}
+/* ---------- visualizador de fotos (tela cheia, acima da folha e abaixo do aviso) ---------- */
+.visor{position:fixed;inset:0;z-index:25;background:#000;touch-action:none;user-select:none;-webkit-user-select:none;overscroll-behavior:contain}
+.visor[hidden]{display:none}
+.visor-palco{position:absolute;inset:0;overflow:hidden}
+.visor-palco img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transform-origin:50% 50%;will-change:transform;-webkit-user-drag:none}
+.visor-palco img.anima{transition:transform .2s ease-out}
+.visor-barra{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:calc(8px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 18px calc(10px + env(safe-area-inset-left));background:linear-gradient(rgba(0,0,0,.65),rgba(0,0,0,0));pointer-events:none}
+.visor-barra button{pointer-events:auto;min-height:44px;min-width:44px;padding:0 14px;border-radius:12px;background:rgba(15,39,44,.78);border:1px solid var(--border);font-size:14px;font-weight:800}
+.visor-barra #visor-remover{color:var(--caramelo)}
+.visor-cont{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);text-shadow:0 1px 3px #000}
+.so-leitor{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+
+@media (prefers-reduced-motion:reduce){.veu,.folha,.toast,.task,.visor-palco img{transition:none!important}}
 </style>
 </head>
 <body>
@@ -234,6 +246,15 @@ textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em +
   <div class="folha-topo" id="ajustes-topo"><i class="alca" aria-hidden="true"></i><h2 id="ajustes-titulo" tabindex="-1">Ajustes</h2></div>
   <div class="folha-campos" id="ajustes-corpo"></div>
   <div class="folha-acoes"><button type="button" class="btn" id="aj-fechar">Fechar</button></div>
+</div>
+<div class="visor" id="visor" role="dialog" aria-modal="true" aria-labelledby="visor-titulo visor-cont" hidden>
+  <div class="visor-palco" id="visor-palco"><img id="visor-img" alt="" draggable="false"></div>
+  <div class="visor-barra">
+    <h2 class="so-leitor" id="visor-titulo">Foto</h2>
+    <button type="button" id="visor-fechar" aria-label="Fechar foto">Fechar</button>
+    <span class="visor-cont" id="visor-cont" aria-live="polite"></span>
+    <button type="button" id="visor-remover" aria-label="Remover foto">Remover</button>
+  </div>
 </div>
 <input type="file" id="aj-arquivo" accept=".json,application/json,text/plain,application/octet-stream" hidden>
 <input type="file" id="f-arquivo-foto" accept="image/*" multiple hidden>
@@ -1319,6 +1340,7 @@ function desenharFotos() {
     const ondeDeixamos = a === document.body || a === $titulo || (a && a.classList.contains('foto') && $fotos.contains(a));
     if (ondeDeixamos) ($btFoto.hidden ? lugarDoBotao() : $btFoto).focus({ preventScroll: true });
   }
+  atualizarVisor(); // a lista mudou (removida, desfeita, carregada): o visualizador acompanha
 }
 
 // Fotos já guardadas: lê do IndexedDB na ordem. Id que não existe mais sai da folha sem quebrar.
@@ -1393,9 +1415,244 @@ function removerFotoDaFolha(indice) {
   minha.toastFoto = toastAtual;
 }
 
-// Visualizador em tela cheia: vem na Task 4.
+// ---- visualizador de fotos (tela cheia, acima da folha) ----
+// Mostra as fotos da folha aberta. Segue a foto pelo objeto (não pelo índice), porque a lista pode
+// mudar com ele aberto (Remover, Desfazer, foto que terminou de carregar ou sumiu do banco).
+const $visor = document.getElementById('visor');
+const $visorPalco = document.getElementById('visor-palco');
+const $visorImg = document.getElementById('visor-img');
+const $visorCont = document.getElementById('visor-cont');
+const $visorFechar = document.getElementById('visor-fechar');
+const $visorRemover = document.getElementById('visor-remover');
+const ZOOM_MAX = 4;
+const ZOOM_DUPLO = 2.5;
+const LIMIAR_TROCA = 60;   // px de arrasto lateral, sem zoom, para trocar de foto
+const TOQUE_DUPLO_MS = 300;
+// { foto, indice, mostrada, url, s (escala), tx, ty (deslocamento), puxa (arrasto lateral) } com ele aberto
+let visor = null;
+const toques = new Map(); // pointerId → { x, y } dos dedos no palco
+let gesto = null;         // gesto em andamento: { modo: 'pinca' | 'pan' | '?' | 'lado' | 'nada', ... }
+let ultimoToque = null;   // { t, x, y } do último toque simples, para o toque duplo
+const reduzirMovimento = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 function abrirVisualizador(indice) {
-  console.log('Agenda: visualizador ainda não existe (foto ' + (indice + 1) + ')');
+  if (!folha || visor || painel !== $folha || !fotosFolha[indice]) return;
+  visor = { foto: fotosFolha[indice], indice, mostrada: null, url: null, s: 1, tx: 0, ty: 0, puxa: 0 };
+  toques.clear();
+  gesto = ultimoToque = null;
+  $folha.inert = true; // o foco fica no visualizador (o #app já está inerte)
+  $visor.hidden = false;
+  mostrarFoto();
+  empilharVisor();
+  $visorFechar.focus();
+}
+
+// desfazerEntrada: fechou pela interface (Fechar, Esc, Remover a última), então desfaz a entrada no histórico.
+// Pelo Voltar a entrada já foi consumida; fechando a folha, ela leva a entrada do visualizador junto.
+function fecharVisor(desfazerEntrada, devolverFoco) {
+  if (!visor) return;
+  const v = visor;
+  visor = null;
+  toques.clear();
+  gesto = ultimoToque = null;
+  if (desfazerEntrada) desempilharVisor();
+  $visor.hidden = true;
+  $visorImg.classList.remove('anima');
+  $visorImg.style.transform = '';
+  $visorImg.removeAttribute('src'); // a URL é da folha: ela revoga ao fechar
+  $visorCont.textContent = '';
+  $folha.inert = false;
+  if (!devolverFoco || !folha) return;
+  // Volta à miniatura da foto que estava na tela; se ela saiu, à vizinha; sem fotos, ao botão ou ao título.
+  const minis = $fotos.querySelectorAll('.foto');
+  const i = fotosFolha.indexOf(v.foto);
+  const alvo = minis[i >= 0 ? i : Math.min(v.indice, minis.length - 1)] || (!$btFoto.hidden && !$btFoto.disabled ? $btFoto : $titulo);
+  alvo.focus({ preventScroll: true });
+}
+
+// A lista da folha mudou: a foto da tela saiu → a que ficou no lugar dela (ou a anterior, se era a última);
+// nenhuma sobrou → fecha.
+function atualizarVisor() {
+  if (!visor) return;
+  const n = fotosFolha.length;
+  if (!n) { fecharVisor(true, true); return; }
+  let i = fotosFolha.indexOf(visor.foto);
+  if (i < 0) {
+    i = Math.min(visor.indice, n - 1);
+    visor.foto = fotosFolha[i];
+  }
+  visor.indice = i;
+  mostrarFoto();
+}
+
+function mostrarFoto() {
+  const foto = visor.foto;
+  if (visor.mostrada !== foto) { // outra foto: zera zoom e arrasto
+    visor.mostrada = foto;
+    visor.s = 1; visor.tx = visor.ty = visor.puxa = 0;
+    gesto = ultimoToque = null;
+    aplicarTransform(false);
+  }
+  if (visor.url !== foto.url) { // a foto ainda carregando do banco ganha a URL depois
+    visor.url = foto.url;
+    if (foto.url) $visorImg.src = foto.url; else $visorImg.removeAttribute('src');
+  }
+  const txt = (visor.indice + 1) + ' / ' + fotosFolha.length;
+  if ($visorCont.textContent !== txt) $visorCont.textContent = txt;
+}
+
+function aplicarTransform(animar) {
+  $visorImg.classList.toggle('anima', !!animar);
+  $visorImg.style.transform = 'translate(' + (visor.tx + visor.puxa) + 'px,' + visor.ty + 'px) scale(' + visor.s + ')';
+}
+function centroPalco() {
+  const r = $visorPalco.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+// Com zoom, a foto pode andar só até a borda dela encostar na da tela; menor que a tela, fica centrada.
+function limitarDeslocamento() {
+  const W = $visorPalco.clientWidth, H = $visorPalco.clientHeight;
+  const iw = $visorImg.naturalWidth || W, ih = $visorImg.naturalHeight || H;
+  const k = Math.min(W / iw, H / ih); // object-fit: contain
+  const mx = Math.max(0, (iw * k * visor.s - W) / 2), my = Math.max(0, (ih * k * visor.s - H) / 2);
+  visor.tx = Math.min(mx, Math.max(-mx, visor.tx));
+  visor.ty = Math.min(my, Math.max(-my, visor.ty));
+}
+// Escala `s` mantendo parado o ponto (px, py) da tela, relativo ao centro do palco.
+function zoomEm(s, px, py) {
+  s = Math.min(ZOOM_MAX, Math.max(1, s));
+  visor.tx = px - s * (px - visor.tx) / visor.s;
+  visor.ty = py - s * (py - visor.ty) / visor.s;
+  visor.s = s;
+  limitarDeslocamento();
+}
+
+// Próxima (+1) ou anterior (−1), sem dar a volta. A nova entra deslizando do lado de onde veio.
+function trocarFoto(delta) {
+  if (!visor) return false;
+  const j = visor.indice + delta;
+  if (j < 0 || j >= fotosFolha.length) return false;
+  visor.foto = fotosFolha[j];
+  visor.indice = j;
+  mostrarFoto();
+  if (!reduzirMovimento()) {
+    visor.puxa = delta * $visorPalco.clientWidth * 0.35;
+    aplicarTransform(false);
+    void $visorImg.offsetWidth; // fixa a posição de partida antes da transição
+    visor.puxa = 0;
+    aplicarTransform(true);
+  }
+  return true;
+}
+
+// Gestos (Pointer Events; touch-action:none só nesta camada): pinça 1×–4× em torno do meio dos dedos;
+// um dedo com zoom move a foto; sem zoom, arrasto lateral > 60px troca de foto; toque duplo 1× ↔ 2,5×.
+function iniciarGesto(continuacao) {
+  const pts = [...toques.values()];
+  $visorImg.classList.remove('anima');
+  if (pts.length >= 2) {
+    const [a, b] = pts, c = centroPalco();
+    visor.puxa = 0;
+    gesto = { modo: 'pinca', d0: Math.hypot(b.x - a.x, b.y - a.y) || 1, mx0: (a.x + b.x) / 2 - c.x, my0: (a.y + b.y) / 2 - c.y,
+      s0: visor.s, tx0: visor.tx, ty0: visor.ty };
+    aplicarTransform(false);
+  } else if (pts.length === 1) {
+    const p = pts[0];
+    // Sobrou um dedo depois da pinça: continua movendo (com zoom) sem virar troca de foto nem toque.
+    gesto = { modo: visor.s > 1 ? 'pan' : continuacao ? 'nada' : '?', x0: p.x, y0: p.y, tx0: visor.tx, ty0: visor.ty, toque: !continuacao };
+  } else {
+    gesto = null;
+  }
+}
+$visorPalco.addEventListener('pointerdown', (e) => {
+  if (!visor || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  try { $visorPalco.setPointerCapture(e.pointerId); } catch (err) { /* segue sem captura */ }
+  const continuacao = toques.size > 0;
+  toques.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  iniciarGesto(continuacao);
+});
+$visorPalco.addEventListener('pointermove', (e) => {
+  if (!visor || !gesto || !toques.has(e.pointerId)) return;
+  toques.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (gesto.modo === 'pinca') {
+    const [a, b] = [...toques.values()], c = centroPalco();
+    const s = Math.min(ZOOM_MAX, Math.max(1, gesto.s0 * Math.hypot(b.x - a.x, b.y - a.y) / gesto.d0));
+    // o ponto da foto que estava sob o meio dos dedos acompanha o meio dos dedos
+    visor.tx = (a.x + b.x) / 2 - c.x - s * (gesto.mx0 - gesto.tx0) / gesto.s0;
+    visor.ty = (a.y + b.y) / 2 - c.y - s * (gesto.my0 - gesto.ty0) / gesto.s0;
+    visor.s = s;
+    limitarDeslocamento();
+    aplicarTransform(false);
+    return;
+  }
+  const dx = e.clientX - gesto.x0, dy = e.clientY - gesto.y0;
+  if (gesto.toque && Math.hypot(dx, dy) > LIMIAR_GESTO) gesto.toque = false;
+  if (gesto.modo === 'pan') {
+    visor.tx = gesto.tx0 + dx;
+    visor.ty = gesto.ty0 + dy;
+    limitarDeslocamento();
+    aplicarTransform(false);
+    return;
+  }
+  if (gesto.modo === '?') {
+    if (Math.abs(dx) < LIMIAR_GESTO && Math.abs(dy) < LIMIAR_GESTO) return;
+    gesto.modo = Math.abs(dx) > Math.abs(dy) ? 'lado' : 'nada';
+  }
+  if (gesto.modo === 'lado') {
+    const temVizinha = dx < 0 ? visor.indice < fotosFolha.length - 1 : visor.indice > 0;
+    visor.puxa = temVizinha ? dx : dx * 0.3; // na ponta, só um pouco de elástico
+    aplicarTransform(false);
+  }
+});
+function soltarToque(e) {
+  if (!toques.has(e.pointerId)) return;
+  const fim = gesto;
+  toques.delete(e.pointerId);
+  if (!visor || !fim) { if (!toques.size) gesto = null; return; }
+  if (toques.size) { iniciarGesto(true); return; } // ainda há dedo na tela
+  gesto = null;
+  if (fim.modo === 'pinca') {
+    if (visor.s < 1.05) { visor.s = 1; visor.tx = visor.ty = 0; aplicarTransform(true); }
+    return;
+  }
+  if (fim.modo === 'lado') {
+    const dx = e.clientX - fim.x0;
+    if (e.type === 'pointerup' && Math.abs(dx) > LIMIAR_TROCA && trocarFoto(dx < 0 ? 1 : -1)) return;
+    visor.puxa = 0;
+    aplicarTransform(true); // não trocou: volta ao lugar
+    return;
+  }
+  if (fim.toque && e.type === 'pointerup') tocouFoto(e.clientX, e.clientY);
+}
+function tocouFoto(x, y) {
+  const agora = performance.now(), u = ultimoToque;
+  if (u && agora - u.t < TOQUE_DUPLO_MS && Math.hypot(x - u.x, y - u.y) < 40) {
+    ultimoToque = null;
+    if (visor.s > 1) { visor.s = 1; visor.tx = visor.ty = 0; }
+    else { const c = centroPalco(); zoomEm(ZOOM_DUPLO, x - c.x, y - c.y); }
+    aplicarTransform(true);
+    return;
+  }
+  ultimoToque = { t: agora, x, y };
+}
+$visorPalco.addEventListener('pointerup', soltarToque);
+$visorPalco.addEventListener('pointercancel', soltarToque);
+$visorPalco.addEventListener('lostpointercapture', soltarToque);
+$visorImg.addEventListener('load', () => { if (visor) { limitarDeslocamento(); aplicarTransform(false); } });
+addEventListener('resize', () => { if (visor) { limitarDeslocamento(); aplicarTransform(false); } });
+
+$visorFechar.addEventListener('click', () => fecharVisor(true, true));
+// Remover vale ao salvar, com Desfazer no aviso; o visualizador vai para a vizinha (atualizarVisor).
+$visorRemover.addEventListener('click', () => {
+  if (!visor || !folha || folha.salvando) return;
+  const i = fotosFolha.indexOf(visor.foto);
+  if (i >= 0) removerFotoDaFolha(i);
+});
+function teclaNoVisor(e) {
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === 'Escape') { e.preventDefault(); fecharVisor(true, true); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); trocarFoto(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); trocarFoto(1); }
 }
 
 // Fechou a folha (qualquer caminho): fotos pendentes ficam só na memória e somem; URLs são revogadas.
@@ -1447,26 +1704,50 @@ function abrirFolha(alvo) {
 
 // ---- Voltar do Android ----
 // Cada folha aberta empilha uma entrada no histórico: o Voltar (botão ou gesto) fecha a folha
-// em vez de sair do app. Fechada pela interface, a entrada é desfeita com history.back().
+// em vez de sair do app. Fechada pela interface, a entrada é desfeita com history.go(-n).
+// O visualizador de fotos empilha mais uma, acima da da folha: o Voltar fecha primeiro só ele.
 let entradaPainel = false;  // a folha aberta tem uma entrada nossa no histórico
-let voltando = false;       // history.back() nosso cujo popstate ainda não chegou
-function empilharPainel() {
-  if (voltando) return; // abriu logo depois de fechar: o popstate do back pendente empilha
+let entradaVisor = false;   // o visualizador aberto tem uma entrada nossa, acima da da folha
+let voltando = false;       // history.go() nosso cujo popstate ainda não chegou
+let voltarMais = 0;         // entradas a desfazer quando esse popstate chegar
+function empilharHistorico(estadoHist) {
   try {
-    history.pushState({ painel: 1 }, '');
-    entradaPainel = true;
-  } catch (e) { console.warn('Agenda: não consegui empilhar o histórico', e); }
+    history.pushState(estadoHist, '');
+    return true;
+  } catch (e) { console.warn('Agenda: não consegui empilhar o histórico', e); return false; }
 }
-function desempilharPainel() {
-  if (!entradaPainel) return;
-  entradaPainel = false;
+// Abriu logo depois de fechar: o popstate do back pendente empilha.
+function empilharPainel() { if (!voltando) entradaPainel = empilharHistorico({ painel: 1 }); }
+function empilharVisor() { if (!voltando) entradaVisor = empilharHistorico({ visor: 1 }); }
+function voltarHistorico(n) {
+  if (n <= 0) return;
+  if (voltando) { voltarMais += n; return; } // um back nosso ainda em curso: este vai depois dele
   voltando = true;
-  history.back();
+  history.go(-n);
+}
+// Fechar a folha desfaz também a entrada do visualizador, se ele estava aberto.
+function desempilharPainel() {
+  const n = (entradaPainel ? 1 : 0) + (entradaVisor ? 1 : 0);
+  entradaPainel = entradaVisor = false;
+  voltarHistorico(n);
+}
+function desempilharVisor() {
+  if (!entradaVisor) return;
+  entradaVisor = false;
+  voltarHistorico(1);
 }
 addEventListener('popstate', () => {
-  if (voltando) { // é o nosso history.back()
+  if (voltando) { // é o nosso history.go()
     voltando = false;
+    if (voltarMais) { const n = voltarMais; voltarMais = 0; voltarHistorico(n); return; }
     if (painel && !entradaPainel) empilharPainel();
+    if (visor && !entradaVisor) empilharVisor();
+    return;
+  }
+  if (visor) { // primeiro só o visualizador; a folha continua aberta
+    if (entradaVisor) entradaVisor = false;
+    else { entradaPainel = false; empilharPainel(); } // sem entrada própria, o Voltar levou a da folha
+    fecharVisor(false, true);
     return;
   }
   if (!painel) return;
@@ -1489,6 +1770,7 @@ function abrirPainel(elFolha, origem, foco) {
 
 function fecharPainel() {
   if (!painel) return;
+  fecharVisor(false, false); // a entrada dele sai junto com a da folha
   desempilharPainel();
   descartarFolha();
   folha = null;
@@ -1644,6 +1926,7 @@ $btApagar.addEventListener('click', () => {
 });
 $veu.addEventListener('click', fecharPainel);
 document.addEventListener('keydown', (e) => {
+  if (visor) { teclaNoVisor(e); return; } // Esc fecha só o visualizador; ←/→ trocam de foto
   if (e.key !== 'Escape' || !painel) return;
   e.preventDefault();
   if (painel === $ajustes && fecharConfirmacao()) return; // Esc cancela primeiro a confirmação
