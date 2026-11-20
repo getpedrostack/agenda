@@ -135,6 +135,17 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .cores{display:flex;gap:12px;flex-wrap:wrap;padding:4px 2px;margin-bottom:12px}
 .cores button{width:30px;height:30px;border-radius:50%;background:var(--c)}
 .cores button[aria-pressed="true"]{box-shadow:0 0 0 3px var(--surface),0 0 0 5px var(--text)}
+/* anotação: 3 linhas que crescem até 8 (sem field-sizing, o script ajusta a altura) */
+textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em + 27px);max-height:calc(11.2em + 27px);field-sizing:content;overflow-y:auto}
+.contador{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right;margin:-6px 2px 10px}
+.contador.cheio{color:var(--caramelo)}
+.fotos{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.foto{width:64px;height:64px;border-radius:10px;overflow:hidden;background:var(--bg);border:1.5px solid var(--border);flex-shrink:0}
+.foto img{display:block;width:100%;height:100%;object-fit:cover}
+.bt-foto{min-height:64px;border-style:dashed;border-radius:10px;padding:0 14px}
+.preparando{min-height:64px;display:flex;align-items:center;padding:0 4px;font-size:12px;font-weight:700;color:var(--dim)}
+.preparando[hidden]{display:none}
+.fotos-aviso{font-size:12px;font-weight:600;color:var(--dim);margin:-2px 0 10px}
 .folha-acoes{flex-shrink:0;display:flex;gap:10px;padding:8px 16px calc(14px + env(safe-area-inset-bottom))}
 .btn{flex:1;background:var(--acao);color:var(--tinta);font-weight:900;border-radius:14px;padding:14px;font-size:15px}
 .btn:disabled{opacity:.4;cursor:default}
@@ -192,6 +203,9 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
   <form class="folha-form" id="folha-form" novalidate autocomplete="off">
     <div class="folha-campos" id="folha-campos">
       <input class="fld" id="f-titulo" type="text" placeholder="O que é o compromisso?" aria-label="Título" enterkeyhint="done">
+      <div class="lbl" id="lbl-nota">Anotação</div>
+      <textarea class="fld" id="f-nota" rows="3" maxlength="500" aria-labelledby="lbl-nota" aria-describedby="f-nota-cont" placeholder="Opcional"></textarea>
+      <div class="contador" id="f-nota-cont" hidden></div>
       <div class="lbl" id="lbl-dia">Dia</div>
       <div class="chips" id="f-dias" role="group" aria-labelledby="lbl-dia">
         <span class="outra" id="f-outra"><button type="button" class="chip" id="f-outra-bt">📅 outra data</button><input type="date" id="f-data" tabindex="-1" aria-hidden="true"></span>
@@ -203,6 +217,12 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
       </div>
       <div class="lbl" id="lbl-cat">Categoria</div>
       <div class="cores" id="f-cats" role="group" aria-labelledby="lbl-cat"></div>
+      <div class="lbl" id="lbl-fotos">Fotos</div>
+      <div class="fotos" id="f-fotos" role="group" aria-labelledby="lbl-fotos">
+        <button type="button" class="chip bt-foto" id="f-foto-bt">＋ Adicionar foto</button>
+        <span class="preparando" id="f-preparando" role="status" hidden>Preparando foto…</span>
+      </div>
+      <p class="fotos-aviso" id="f-fotos-limite" hidden>Limite de 6 fotos</p>
     </div>
     <div class="folha-acoes">
       <button type="button" class="bt-apagar" id="f-apagar">Apagar</button>
@@ -216,6 +236,7 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
   <div class="folha-acoes"><button type="button" class="btn" id="aj-fechar">Fechar</button></div>
 </div>
 <input type="file" id="aj-arquivo" accept=".json,application/json,text/plain,application/octet-stream" hidden>
+<input type="file" id="f-arquivo-foto" accept="image/*" multiple hidden>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script id="nucleo">
 // Núcleo puro: datas e montagem das visualizações (sem DOM, sem storage).
@@ -457,6 +478,7 @@ const Fotos = (() => {
       req.onsuccess = () => {
         const db = req.result;
         db.onversionchange = () => { db.close(); conexao = null; };
+        db.onclose = () => { conexao = null; }; // fechada pelo navegador: a próxima chamada reabre
         resolve(db);
       };
       req.onerror = () => reject(req.error || new Error('indexeddb'));
@@ -500,24 +522,42 @@ const Fotos = (() => {
     const r = await transacao('readonly', (s) => s.getAllKeys());
     return (r || []).map(String);
   }
+  // idsEmUso: lista ou função que devolve a lista. A função é chamada só depois de listar o banco,
+  // para enxergar uma gravação que tenha terminado nesse meio-tempo.
   async function limparOrfas(idsEmUso) {
-    const emUso = new Set(idsEmUso);
-    const sobras = (await listarIds()).filter((id) => !emUso.has(id));
-    await apagar(sobras);
+    const todos = await listarIds();
+    const emUso = new Set(typeof idsEmUso === 'function' ? idsEmUso() : idsEmUso);
+    await apagar(todos.filter((id) => !emUso.has(id)));
   }
 
-  async function decodificar(file) {
-    try {
-      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      return { fonte: bmp, w: bmp.width, h: bmp.height, fechar: () => bmp.close() };
-    } catch (e) { /* cai no <img> */ }
+  // <img> carregado (sem decode()): dá as medidas pelo cabeçalho, sem decodificar a foto inteira.
+  async function carregarImg(file) {
     const url = URL.createObjectURL(file);
     try {
       const img = new Image();
       img.decoding = 'async';
       await new Promise((ok, falha) => { img.onload = ok; img.onerror = () => falha(new Error('formato')); img.src = url; });
-      return { fonte: img, w: img.naturalWidth, h: img.naturalHeight, fechar: () => {} };
+      return img;
     } finally { URL.revokeObjectURL(url); }
+  }
+  // Foto grande: o navegador já decodifica reduzida (resizeWidth/Height), sem um bitmap de 12 MP na memória.
+  // Só o lado maior é pedido e o outro sai na proporção; se a orientação EXIF trocar os lados,
+  // o bitmap sai um pouco maior que 1600 e o canvas termina a redução — a proporção nunca distorce.
+  async function decodificar(file) {
+    let img = null;
+    try { img = await carregarImg(file); } catch (e) { /* tenta só o createImageBitmap */ }
+    const iw = img ? img.naturalWidth : 0, ih = img ? img.naturalHeight : 0;
+    const opcoes = { imageOrientation: 'from-image' };
+    if (Math.max(iw, ih) > LADO_MAX) {
+      opcoes.resizeQuality = 'high';
+      if (iw >= ih) opcoes.resizeWidth = LADO_MAX; else opcoes.resizeHeight = LADO_MAX;
+    }
+    try {
+      const bmp = await createImageBitmap(file, opcoes);
+      return { fonte: bmp, w: bmp.width, h: bmp.height, fechar: () => bmp.close() };
+    } catch (e) { /* cai no <img> */ }
+    if (!img) throw new Error('formato');
+    return { fonte: img, w: iw, h: ih, fechar: () => {} };
   }
   async function reduzir(file) {
     let dec;
@@ -669,9 +709,10 @@ function alternarFeito(id) {
 // Um aviso por vez: um novo substitui o anterior, e a ação do anterior deixa de valer.
 const $toast = document.getElementById('toast');
 let toastAtual = null;
-function toast(msg, { acao, rotulo, ms = 4000 } = {}) {
+// aoExpirar: chamado quando o aviso some sem a ação ter sido tocada (tempo, outro aviso ou fecharToast).
+function toast(msg, { acao, rotulo, ms = 4000, aoExpirar } = {}) {
   fecharToast();
-  const meu = {};
+  const meu = { aoExpirar };
   toastAtual = meu;
   $toast.replaceChildren(el('span', 'msg', msg));
   if (acao) {
@@ -681,6 +722,7 @@ function toast(msg, { acao, rotulo, ms = 4000 } = {}) {
     bt.type = 'button';
     bt.addEventListener('click', () => {
       if (toastAtual !== meu) return;
+      meu.aoExpirar = null;
       fecharToast();
       acao();
     });
@@ -691,10 +733,12 @@ function toast(msg, { acao, rotulo, ms = 4000 } = {}) {
 }
 function fecharToast() {
   if (!toastAtual) return;
-  clearTimeout(toastAtual.timer);
+  const t = toastAtual;
+  clearTimeout(t.timer);
   toastAtual = null;
   $toast.classList.remove('visivel');
   setTimeout(() => { if (!toastAtual) $toast.replaceChildren(); }, 250);
+  if (t.aoExpirar) t.aoExpirar();
 }
 function avisarFalha(ok) {
   if (!ok) toast(MSG_FALHA);
@@ -1110,9 +1154,21 @@ const $cats = document.getElementById('f-cats');
 const $btApagar = document.getElementById('f-apagar');
 const $btSalvar = document.getElementById('f-salvar');
 const $btNovo = document.getElementById('bt-novo');
+const $nota = document.getElementById('f-nota');
+const $notaCont = document.getElementById('f-nota-cont');
+const $fotos = document.getElementById('f-fotos');
+const $btFoto = document.getElementById('f-foto-bt');
+const $preparando = document.getElementById('f-preparando');
+const $fotosLimite = document.getElementById('f-fotos-limite');
+const $arquivoFoto = document.getElementById('f-arquivo-foto');
 const ISO_DIA = /^\d{4}-\d{2}-\d{2}$/;
+const CONTADOR_A_PARTIR = 400; // o contador da anotação só aparece acima disto
 
-let folha = null;           // { id, data, hora, cat, avulsa } enquanto a folha de compromisso está aberta
+// { id, data, hora, cat, avulsa, urls, preparando, salvando, gravando, toastFoto } enquanto a folha de compromisso
+// está aberta. Cada abertura é um objeto novo: código assíncrono confere `folha === minha` antes de mexer.
+let folha = null;
+// Fotos da folha aberta, na ordem: { id, blob, url, nova }. Nada vai para o IndexedDB antes do Salvar.
+let fotosFolha = [];
 let painel = null;          // a folha aberta no momento (#folha ou #ajustes)
 let quemAbriu = null;       // para devolver o foco ao fechar
 let viradaPendente = false; // a meia-noite passou com a folha aberta
@@ -1174,7 +1230,164 @@ function desenharCats() {
 function marcarCat() {
   $cats.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.cat === folha.cat ? 'true' : 'false'));
 }
-function atualizarSalvar() { $btSalvar.disabled = !$titulo.value.trim(); }
+function atualizarSalvar() {
+  $btSalvar.disabled = !$titulo.value.trim() || !!(folha && (folha.preparando || folha.salvando));
+}
+
+// ---- anotação ----
+const TEM_FIELD_SIZING = typeof CSS !== 'undefined' && CSS.supports && CSS.supports('field-sizing', 'content');
+function atualizarNota() {
+  const n = $nota.value.length;
+  $notaCont.hidden = n <= CONTADOR_A_PARTIR;
+  $notaCont.textContent = n + '/' + Nucleo.LIMITE_NOTA;
+  $notaCont.classList.toggle('cheio', n >= Nucleo.LIMITE_NOTA);
+  if (!TEM_FIELD_SIZING) { // min/max-height do CSS limitam entre 3 e 8 linhas
+    $nota.style.height = 'auto';
+    $nota.style.height = ($nota.scrollHeight + 3) + 'px';
+  }
+}
+
+// ---- fotos da folha ----
+function urlDaFolha(minha, blob) {
+  const url = URL.createObjectURL(blob);
+  minha.urls.add(url);
+  return url;
+}
+// Libera a URL de uma foto que saiu da folha (o Desfazer dela expirou).
+function revogarFoto(foto) {
+  if (!foto.url || fotosFolha.includes(foto)) return;
+  URL.revokeObjectURL(foto.url);
+  if (folha) folha.urls.delete(foto.url);
+  foto.url = null;
+}
+function apagarFotosSemEsperar(ids) {
+  if (ids.length) Fotos.apagar(ids).catch((e) => console.warn('Agenda: não consegui apagar fotos', e));
+}
+// Ids que a limpeza de órfãs nunca apaga: os do estado e os da folha aberta (inclusive os sendo gravados).
+function idsFotosEmUso() {
+  const ids = Nucleo.idsFotos(estado.tarefas);
+  if (folha) {
+    fotosFolha.forEach((f) => ids.push(f.id));
+    if (folha.gravando) ids.push(...folha.gravando);
+  }
+  return ids;
+}
+
+function desenharFotos() {
+  if (!folha) return;
+  const n = fotosFolha.length;
+  const focoEm = $fotos.contains(document.activeElement) && document.activeElement.classList.contains('foto')
+    ? [...$fotos.querySelectorAll('.foto')].indexOf(document.activeElement) : -1;
+  const miniaturas = fotosFolha.map((foto, i) => {
+    const b = el('button', 'foto');
+    b.type = 'button';
+    b.setAttribute('aria-label', 'Foto ' + (i + 1) + ' de ' + n);
+    if (foto.url) {
+      const img = el('img');
+      img.alt = '';
+      img.decoding = 'async';
+      img.src = foto.url;
+      b.append(img);
+    }
+    b.addEventListener('click', () => abrirVisualizador(i));
+    return b;
+  });
+  $fotos.replaceChildren(...miniaturas, $btFoto, $preparando);
+  const cheio = n >= Nucleo.LIMITE_FOTOS;
+  $btFoto.hidden = cheio || !!folha.preparando;
+  $btFoto.disabled = !!folha.salvando;
+  $preparando.hidden = !folha.preparando;
+  $fotosLimite.hidden = !cheio;
+  if (focoEm >= 0) (miniaturas[Math.min(focoEm, n - 1)] || ($btFoto.hidden ? $titulo : $btFoto)).focus({ preventScroll: true });
+}
+
+// Fotos já guardadas: lê do IndexedDB na ordem. Id que não existe mais sai da folha sem quebrar.
+async function carregarFotosFolha(minha, itens) {
+  let falhou = false;
+  for (const foto of itens) {
+    let blob;
+    try { blob = await Fotos.ler(foto.id); } catch (e) { console.warn('Agenda: não consegui ler a foto ' + foto.id, e); falhou = true; continue; }
+    if (folha !== minha) return;
+    if (!blob) {
+      const i = fotosFolha.indexOf(foto);
+      if (i >= 0) fotosFolha.splice(i, 1);
+    } else {
+      foto.blob = blob;
+      foto.url = urlDaFolha(minha, blob);
+    }
+    desenharFotos();
+  }
+  if (falhou && folha === minha) avisarFotos();
+}
+
+// Escolha de fotos: reduz uma por vez; só entram as que cabem.
+async function adicionarFotos(arquivos) {
+  const minha = folha;
+  if (!minha || minha.preparando || minha.salvando || !arquivos.length) return;
+  const cabem = Nucleo.LIMITE_FOTOS - fotosFolha.length;
+  if (cabem <= 0) return;
+  if (arquivos.length > cabem) {
+    arquivos = arquivos.slice(0, cabem);
+    toast(cabem === 1 ? 'Só cabe mais 1 foto' : 'Só cabem mais ' + cabem + ' fotos');
+  }
+  minha.preparando = true;
+  desenharFotos();
+  atualizarSalvar();
+  let formatoRuim = false;
+  try {
+    for (const arq of arquivos) {
+      let blob;
+      try { blob = await Fotos.reduzir(arq); } catch (e) { console.warn('Agenda: foto não lida', e); formatoRuim = true; continue; }
+      if (folha !== minha) return;
+      if (fotosFolha.length >= Nucleo.LIMITE_FOTOS) break; // um Desfazer ocupou a vaga
+      fotosFolha.push({ id: Fotos.novoId(), blob, url: urlDaFolha(minha, blob), nova: true });
+      desenharFotos();
+    }
+  } finally {
+    if (folha === minha) {
+      minha.preparando = false;
+      desenharFotos();
+      atualizarSalvar();
+    }
+  }
+  if (formatoRuim && folha === minha) toast('Formato de foto não suportado');
+}
+
+// Tira a foto da folha (vale ao salvar), com Desfazer na mesma posição.
+function removerFotoDaFolha(indice) {
+  const minha = folha;
+  if (!minha || minha.salvando || !fotosFolha[indice]) return;
+  const [foto] = fotosFolha.splice(indice, 1);
+  desenharFotos();
+  toast('Foto removida', {
+    rotulo: 'Desfazer',
+    ms: 5000,
+    acao: () => {
+      if (folha !== minha || minha.salvando || fotosFolha.includes(foto)) { revogarFoto(foto); return; }
+      if (fotosFolha.length >= Nucleo.LIMITE_FOTOS) { revogarFoto(foto); toast('Limite de 6 fotos'); return; }
+      fotosFolha.splice(Math.min(indice, fotosFolha.length), 0, foto);
+      desenharFotos();
+    },
+    aoExpirar: () => revogarFoto(foto),
+  });
+  minha.toastFoto = toastAtual;
+}
+
+// Visualizador em tela cheia: vem na Task 4.
+function abrirVisualizador(indice) {
+  console.log('Agenda: visualizador ainda não existe (foto ' + (indice + 1) + ')');
+}
+
+// Fechou a folha (qualquer caminho): fotos pendentes ficam só na memória e somem; URLs são revogadas.
+function descartarFolha() {
+  const minha = folha;
+  if (!minha) return;
+  if (minha.toastFoto && toastAtual === minha.toastFoto) fecharToast();
+  minha.urls.forEach((u) => URL.revokeObjectURL(u));
+  minha.urls.clear();
+  fotosFolha = [];
+  $fotos.replaceChildren($btFoto, $preparando);
+}
 
 // alvo: tarefa existente (editar), { data } (novo nesse dia) ou nada (novo hoje).
 function abrirFolha(alvo) {
@@ -1187,17 +1400,28 @@ function abrirFolha(alvo) {
     hora: edicao ? edicao.hora || null : null,
     cat: edicao ? edicao.cat : estado.cats[0] ? estado.cats[0].id : null,
     avulsa: data,
+    urls: new Set(),   // object URLs desta folha, revogadas ao fechar
+    preparando: false, // reduzindo fotos escolhidas
+    salvando: false,   // gravando fotos no IndexedDB
+    gravando: null,    // ids sendo gravados (a limpeza de órfãs não os apaga)
+    toastFoto: null,   // aviso "Foto removida" desta folha
   };
+  const existentes = edicao && Array.isArray(edicao.fotos) ? edicao.fotos.map((id) => ({ id, blob: null, url: null, nova: false })) : [];
+  fotosFolha = existentes.slice();
   document.getElementById('folha-titulo').textContent = edicao ? 'Editar compromisso' : 'Novo compromisso';
   $titulo.value = edicao ? edicao.titulo : '';
+  $nota.value = edicao && typeof edicao.nota === 'string' ? edicao.nota : '';
   $hora.value = folha.hora || '';
   $btApagar.hidden = !edicao;
   desenharDias();
   desenharHora();
   desenharCats();
+  desenharFotos();
   atualizarSalvar();
   document.getElementById('folha-campos').scrollTop = 0;
   abrirPainel($folha, { id: folha.id, data }, $titulo);
+  atualizarNota(); // depois de visível, para a altura sem field-sizing sair certa
+  if (existentes.length) carregarFotosFolha(folha, existentes);
 }
 
 // ---- Voltar do Android ----
@@ -1245,6 +1469,7 @@ function abrirPainel(elFolha, origem, foco) {
 function fecharPainel() {
   if (!painel) return;
   desempilharPainel();
+  descartarFolha();
   folha = null;
   painel.classList.remove('aberta', 'arrastando');
   painel.style.transform = '';
@@ -1268,29 +1493,87 @@ function devolverFoco() {
   (alvo || $btNovo).focus({ preventScroll: true });
 }
 
-function salvarFolha(e) {
+// Tudo vale ao salvar: 1) grava as fotos novas (falhou uma: nada é salvo); 2) grava a tarefa;
+// 3) só com a tarefa salva apaga as fotos removidas; 4) a tarefa não salvou: apaga as novas recém-gravadas.
+// Se a folha fechar durante a gravação (Voltar, outra janela), tudo é descartado.
+async function salvarFolha(e) {
   e.preventDefault();
-  if (!folha) return;
+  const minha = folha;
+  if (!minha || minha.salvando || minha.preparando) return;
   const titulo = $titulo.value.trim();
   if (!titulo) return;
-  if (folha.id) {
-    const t = estado.tarefas.find((x) => x.id === folha.id);
-    if (!t) { fecharPainel(); return; }
-    t.titulo = titulo;
-    t.data = folha.data;
-    t.hora = folha.hora;
-    t.cat = folha.cat;
-  } else {
-    estado.tarefas.push(Nucleo.novaTarefa({ titulo, data: folha.data, hora: folha.hora, cat: folha.cat }, new Date()));
+  const lista = fotosFolha.slice();
+  const novas = lista.filter((f) => f.nova);
+  minha.salvando = true;
+  minha.gravando = novas.map((f) => f.id);
+  atualizarSalvar();
+  desenharFotos();
+  const gravadas = [];
+  try {
+    for (const f of novas) {
+      if (folha !== minha) break; // fechou no meio: não grava o resto
+      await Fotos.guardar(f.id, f.blob);
+      gravadas.push(f.id);
+    }
+  } catch (err) {
+    console.warn('Agenda: não consegui guardar as fotos', err);
+    apagarFotosSemEsperar(gravadas);
+    if (folha === minha) {
+      minha.salvando = false;
+      minha.gravando = null;
+      atualizarSalvar();
+      desenharFotos();
+      avisarFotos();
+    }
+    return;
   }
-  const ok = salvar();
+  if (folha !== minha) { apagarFotosSemEsperar(gravadas); return; }
+
+  const nota = Nucleo.normalizarNota($nota.value);
+  const ids = lista.map((f) => f.id);
+  let ok;
+  let removidas = [];
+  if (minha.id) {
+    const t = estado.tarefas.find((x) => x.id === minha.id);
+    if (!t) { apagarFotosSemEsperar(gravadas); fecharPainel(); return; }
+    const tinhaFotos = Object.prototype.hasOwnProperty.call(t, 'fotos');
+    const antes = t.fotos;
+    t.titulo = titulo;
+    t.data = minha.data;
+    t.hora = minha.hora;
+    t.cat = minha.cat;
+    t.nota = nota;
+    t.fotos = ids;
+    ok = salvar();
+    if (ok) {
+      removidas = (antes || []).filter((id) => !ids.includes(id));
+    } else if (tinhaFotos) {
+      t.fotos = antes; // as fotos só mudam se a gravação der certo
+    } else {
+      delete t.fotos;
+    }
+  } else {
+    const nova = Nucleo.novaTarefa({ titulo, data: minha.data, hora: minha.hora, cat: minha.cat, nota, fotos: ids }, new Date());
+    estado.tarefas.push(nova);
+    ok = salvar();
+    if (!ok) nova.fotos = [];
+  }
+  if (!ok) apagarFotosSemEsperar(gravadas);
   render();
   fecharPainel();
   avisarFalha(ok);
+  apagarFotosSemEsperar(removidas);
 }
 
 $form.addEventListener('submit', salvarFolha);
 $titulo.addEventListener('input', atualizarSalvar);
+$nota.addEventListener('input', atualizarNota);
+$btFoto.addEventListener('click', () => { if (folha && !folha.preparando && !folha.salvando) $arquivoFoto.click(); });
+$arquivoFoto.addEventListener('change', () => {
+  const arquivos = [...($arquivoFoto.files || [])];
+  $arquivoFoto.value = ''; // a mesma foto pode ser escolhida de novo
+  adicionarFotos(arquivos);
+});
 $semHora.addEventListener('click', () => { folha.hora = null; $hora.value = ''; desenharHora(); });
 const lerHora = () => {
   if (!folha) return;
@@ -1629,7 +1912,7 @@ render();
 irParaHoje(false);
 // Limpa fotos órfãs sem bloquear a tela. Só se o estado foi lido de verdade (senão tudo pareceria órfão).
 if (!leituraFalhou && textoCorrompido === null) {
-  Fotos.limparOrfas(Nucleo.idsFotos(estado.tarefas)).catch((e) => console.warn('Agenda: limpeza de fotos falhou', e));
+  Fotos.limparOrfas(idsFotosEmUso).catch((e) => console.warn('Agenda: limpeza de fotos falhou', e));
 }
 if (leituraFalhou) toast('Não foi possível ler os dados do aparelho.', { ms: 6000 });
 // agenda.v1 ilegível: guarda o texto à parte já no início (agenda.v1 fica intocado) e avisa uma vez.
