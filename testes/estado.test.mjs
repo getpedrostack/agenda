@@ -136,7 +136,7 @@ test('validarBackup aceita e devolve cópias; sem cats usa o padrão', () => {
   r.cats[0].nome = 'X';
   assert.equal(orig.tarefas[0].titulo, 'a');
   assert.equal(N.CATS_PADRAO[0].nome, 'Pessoal');
-  const r2 = N.validarBackup({ ...orig, cats: [{ id: 'z', nome: 'Z', cor: '#fff' }] });
+  const r2 = N.validarBackup({ ...orig, cats: [{ id: 'z', nome: 'Z', cor: '#ffffff' }] });
   assert.equal(r2.cats.length, 1);
 });
 
@@ -189,4 +189,28 @@ test('carregar trata elementos inválidos como corrompido', () => {
     assert.equal(r.estado.cats.length, 4);
   }
   assert.equal(N.carregar('[1]').corrompido, true);
+});
+
+test('validarBackup recusa cor de categoria fora de #rrggbb', () => {
+  for (const cor of ['url(x)', 'red', '#fff', '#12345g', '#1234567', ' #123456', 'expression(1)']) {
+    const r = N.validarBackup({ app: 'agenda', versao: 1, tarefas: [], cats: [{ id: 'a', nome: 'A', cor }] });
+    assert.equal(r.ok, false, cor);
+    assert.equal(r.erro, 'Backup com categoria inválida.', cor);
+  }
+  assert.equal(N.validarBackup({ app: 'agenda', versao: 1, tarefas: [], cats: [{ id: 'a', nome: 'A', cor: '#A1b2C3' }] }).ok, true);
+});
+
+test('validarBackup recusa lista de categorias vazia', () => {
+  const r = N.validarBackup({ app: 'agenda', versao: 1, tarefas: [], cats: [] });
+  assert.equal(r.ok, false);
+  assert.equal(r.erro, 'Backup com categoria inválida.');
+});
+
+test('carregar com cats vazia ou cor inválida é corrompido', () => {
+  for (const cats of [[], [{ id: 'a', nome: 'A', cor: 'url(x)' }]]) {
+    const r = N.carregar(JSON.stringify({ tarefas: [tar('a')], cats }));
+    assert.equal(r.corrompido, true, JSON.stringify(cats));
+    assert.deepEqual(plano(r.estado.tarefas), []);
+    assert.equal(r.estado.cats.length, 4);
+  }
 });

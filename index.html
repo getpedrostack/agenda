@@ -319,8 +319,11 @@ input.chip:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 
   const tarefaValida = (t) => ehObj(t) && typeof t.id === 'string' && t.id !== '' &&
     typeof t.titulo === 'string' && typeof t.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.data);
-  const catValida = (c) => ehObj(c) && ['id', 'nome', 'cor'].every((k) => typeof c[k] === 'string' && c[k] !== '');
-  const catsOk = (cats) => cats === undefined || (Array.isArray(cats) && cats.every(catValida));
+  const COR_HEX = /^#[0-9a-f]{6}$/i;
+  const catValida = (c) => ehObj(c) && ['id', 'nome'].every((k) => typeof c[k] === 'string' && c[k] !== '') &&
+    typeof c.cor === 'string' && COR_HEX.test(c.cor);
+  // Sem cats usa o padrão; com cats, precisa ter ao menos uma categoria válida.
+  const catsOk = (cats) => cats === undefined || (Array.isArray(cats) && cats.length > 0 && cats.every(catValida));
 
   function estadoInicial() {
     return { tarefas: [], cats: copia(CATS_PADRAO) };
