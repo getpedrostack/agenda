@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agenda</title>
+</head>
+<body>
+<script id="nucleo">
+// Núcleo puro: datas e montagem das visualizações (sem DOM, sem storage).
+(function () {
+  const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const COR_PADRAO = '#5bb8bd';
+  const p2 = (n) => String(n).padStart(2, '0');
+
+  function isoDia(d) {
+    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+  }
+  function deIso(iso) {
+    const [a, m, d] = iso.split('-').map(Number);
+    return new Date(a, m - 1, d);
+  }
+  function somaDias(iso, n) {
+    const d = deIso(iso);
+    d.setDate(d.getDate() + n);
+    return isoDia(d);
+  }
+  function diasEntre(a, b) {
+    return Math.round((deIso(b) - deIso(a)) / 86400000);
+  }
+  function inicioSemana(iso) {
+    return somaDias(iso, -deIso(iso).getDay());
+  }
+  function ordenarDia(tarefas) {
+    return tarefas.slice().sort((x, y) => {
+      if (!x.hora !== !y.hora) return x.hora ? 1 : -1;
+      if (x.hora !== y.hora) return x.hora < y.hora ? -1 : 1;
+      return (x.criadoEm || 0) - (y.criadoEm || 0);
+    });
+  }
+  function porDia(tarefas) {
+    const mapa = new Map();
+    for (const t of tarefas) {
+      if (!mapa.has(t.data)) mapa.set(t.data, []);
+      mapa.get(t.data).push(t);
+    }
+    return mapa;
+  }
+  function montarLinha(tarefas, hojeIso) {
+    const mapa = porDia(tarefas);
+    mapa.set(hojeIso, mapa.get(hojeIso) || []);
+    const datas = [...mapa.keys()].sort();
+    const itens = [];
+    datas.forEach((data, i) => {
+      if (i > 0) {
+        const n = diasEntre(datas[i - 1], data) - 1;
+        if (n >= 1) itens.push({ tipo: 'livres', de: somaDias(datas[i - 1], 1), ate: somaDias(data, -1), n });
+      }
+      itens.push({ tipo: 'dia', data, tarefas: ordenarDia(mapa.get(data)) });
+    });
+    return itens;
+  }
+  function curto(iso) {
+    const d = deIso(iso);
+    return d.getDate() + ' ' + MESES[d.getMonth()];
+  }
+  function rotuloLivres(de, ate, n) {
+    if (n > 3) return curto(de) + ' – ' + curto(ate) + ' · ' + n + ' dias livres';
+    const nomes = [];
+    for (let i = 0; i < n; i++) {
+      const d = deIso(somaDias(de, i));
+      nomes.push(DIAS[d.getDay()] + ' ' + d.getDate());
+    }
+    return nomes.join(' · ') + ' — livres';
+  }
+  function semana(tarefas, inicioIso) {
+    const mapa = porDia(tarefas);
+    return Array.from({ length: 7 }, (_, i) => {
+      const data = somaDias(inicioIso, i);
+      return { data, tarefas: ordenarDia(mapa.get(data) || []) };
+    });
+  }
+  function gradeMes(ano, mes0) {
+    const primeiro = isoDia(new Date(ano, mes0, 1));
+    const inicio = inicioSemana(primeiro);
+    const ultimo = isoDia(new Date(ano, mes0 + 1, 0));
+    const celulas = Math.ceil((diasEntre(inicio, ultimo) + 1) / 7) * 7;
+    return Array.from({ length: celulas }, (_, i) => {
+      const data = somaDias(inicio, i);
+      return { data, doMes: deIso(data).getMonth() === mes0 };
+    });
+  }
+  function pontosDia(tarefas, iso, cats) {
+    const doDia = ordenarDia(tarefas.filter((t) => t.data === iso));
+    const cor = (id) => {
+      const c = cats.find((x) => x.id === id);
+      return c ? c.cor : COR_PADRAO;
+    };
+    return { cores: doDia.slice(0, 3).map((t) => cor(t.cat)), mais: doDia.length > 3 };
+  }
+
+  globalThis.Nucleo = { isoDia, deIso, somaDias, inicioSemana, ordenarDia, montarLinha, rotuloLivres, semana, gradeMes, pontosDia };
+})();
+</script>
+</body>
+</html>
