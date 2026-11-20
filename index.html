@@ -435,6 +435,133 @@ function gravarArmazenado(chave, valor) {
   try { localStorage.setItem(chave, valor); return true; } catch (e) { console.warn('Agenda: não consegui gravar ' + chave, e); return false; }
 }
 
+// ---- fotos (IndexedDB, só neste aparelho) ----
+const MSG_FOTOS = 'Não foi possível guardar fotos neste aparelho.';
+function avisarFotos() { toast(MSG_FOTOS); }
+const Fotos = (() => {
+  const BANCO = 'agenda-fotos';
+  const LOJA = 'fotos';
+  const LADO_MAX = 1600;
+  const QUALIDADE = 0.82;
+  let conexao = null; // promessa da conexão única, aberta só quando preciso
+
+  function abrir() {
+    if (conexao) return conexao;
+    conexao = new Promise((resolve, reject) => {
+      if (typeof indexedDB === 'undefined') { reject(new Error('indexeddb')); return; }
+      let req;
+      try { req = indexedDB.open(BANCO, 1); } catch (e) { reject(e); return; }
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(LOJA)) req.result.createObjectStore(LOJA);
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onversionchange = () => { db.close(); conexao = null; };
+        resolve(db);
+      };
+      req.onerror = () => reject(req.error || new Error('indexeddb'));
+      req.onblocked = () => reject(new Error('indexeddb'));
+    });
+    conexao.catch(() => { conexao = null; }); // falhou: a próxima chamada tenta de novo
+    return conexao;
+  }
+
+  // Executa `fn(store)` numa transação; resolve com o valor de `fn` quando ela completa.
+  async function transacao(modo, fn) {
+    const db = await abrir();
+    return new Promise((resolve, reject) => {
+      let valor;
+      let tx;
+      try {
+        tx = db.transaction(LOJA, modo);
+        tx.oncomplete = () => resolve(valor && valor.result !== undefined ? valor.result : undefined);
+        tx.onerror = () => reject(tx.error || new Error('indexeddb'));
+        tx.onabort = () => reject(tx.error || new Error('indexeddb'));
+        valor = fn(tx.objectStore(LOJA));
+      } catch (e) { reject(e); }
+    });
+  }
+
+  function novoId() {
+    return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+  function guardar(id, blob) {
+    return transacao('readwrite', (s) => { s.put(blob, id); }).then(() => undefined);
+  }
+  async function ler(id) {
+    const r = await transacao('readonly', (s) => s.get(id));
+    return r === undefined ? null : r;
+  }
+  function apagar(ids) {
+    if (!ids || !ids.length) return Promise.resolve();
+    return transacao('readwrite', (s) => { ids.forEach((id) => s.delete(id)); }).then(() => undefined);
+  }
+  async function listarIds() {
+    const r = await transacao('readonly', (s) => s.getAllKeys());
+    return (r || []).map(String);
+  }
+  async function limparOrfas(idsEmUso) {
+    const emUso = new Set(idsEmUso);
+    const sobras = (await listarIds()).filter((id) => !emUso.has(id));
+    await apagar(sobras);
+  }
+
+  async function decodificar(file) {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      return { fonte: bmp, w: bmp.width, h: bmp.height, fechar: () => bmp.close() };
+    } catch (e) { /* cai no <img> */ }
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.decoding = 'async';
+      await new Promise((ok, falha) => { img.onload = ok; img.onerror = () => falha(new Error('formato')); img.src = url; });
+      return { fonte: img, w: img.naturalWidth, h: img.naturalHeight, fechar: () => {} };
+    } finally { URL.revokeObjectURL(url); }
+  }
+  async function reduzir(file) {
+    let dec;
+    try { dec = await decodificar(file); } catch (e) { throw new Error('formato'); }
+    try {
+      if (!dec.w || !dec.h) throw new Error('formato');
+      const k = Math.min(1, LADO_MAX / Math.max(dec.w, dec.h));
+      const w = Math.max(1, Math.round(dec.w * k));
+      const h = Math.max(1, Math.round(dec.h * k));
+      const usaOff = typeof OffscreenCanvas !== 'undefined';
+      const cv = usaOff ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(dec.fonte, 0, 0, w, h);
+      const blob = usaOff
+        ? await cv.convertToBlob({ type: 'image/jpeg', quality: QUALIDADE })
+        : await new Promise((ok) => cv.toBlob(ok, 'image/jpeg', QUALIDADE));
+      if (!blob) throw new Error('formato');
+      return blob;
+    } finally { dec.fechar(); }
+  }
+
+  function paraDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = () => reject(fr.error || new Error('dataurl'));
+      fr.readAsDataURL(blob);
+    });
+  }
+  function deDataUrl(str) {
+    const m = typeof str === 'string' && /^data:([^;,]+)(;[^,]*)?;base64,([A-Za-z0-9+/]*={0,2})$/.exec(str);
+    if (!m) throw new Error('dataurl');
+    let bin;
+    try { bin = atob(m[3]); } catch (e) { throw new Error('dataurl'); }
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: m[1] });
+  }
+
+  return Object.freeze({ novoId, guardar, ler, apagar, listarIds, reduzir, paraDataUrl, deDataUrl, limparOrfas });
+})();
+
 const boot = (() => {
   let texto;
   try {
@@ -1500,6 +1627,10 @@ try {
 
 render();
 irParaHoje(false);
+// Limpa fotos órfãs sem bloquear a tela. Só se o estado foi lido de verdade (senão tudo pareceria órfão).
+if (!leituraFalhou && textoCorrompido === null) {
+  Fotos.limparOrfas(Nucleo.idsFotos(estado.tarefas)).catch((e) => console.warn('Agenda: limpeza de fotos falhou', e));
+}
 if (leituraFalhou) toast('Não foi possível ler os dados do aparelho.', { ms: 6000 });
 // agenda.v1 ilegível: guarda o texto à parte já no início (agenda.v1 fica intocado) e avisa uma vez.
 if (textoCorrompido !== null) {
