@@ -369,6 +369,7 @@ let textoCorrompido = boot.textoCorrompido; // texto ruim ainda não guardado à
 let aba = ABAS.includes(lerArmazenado(CHAVE_ABA)) ? lerArmazenado(CHAVE_ABA) : 'linha';
 let diaAtual = hojeIso();
 let semanaInicio = null;    // domingo da semana visível (só na memória); null = semana de hoje
+let forcarHoje = false;     // "Hoje": a próxima desenhada da Semana rola até a coluna de hoje
 
 // Antes da primeira gravação, guarda o texto corrompido para nunca perdê-lo.
 // Se a chave já guarda outro texto, usa uma chave com carimbo de tempo em vez de sobrescrever.
@@ -669,7 +670,8 @@ function renderSemana() {
   if (semanaInicio === null) semanaInicio = Nucleo.inicioSemana(diaAtual);
   // Mesma semana já na tela (ex.: depois de salvar): mantém as rolagens.
   const antes = $corpo.querySelector('.week');
-  const manter = antes && antes.dataset.inicio === semanaInicio;
+  const manter = antes && antes.dataset.inicio === semanaInicio && !forcarHoje;
+  forcarHoje = false;
   const x = manter ? antes.scrollLeft : 0, y = manter ? $corpo.scrollTop : 0;
 
   const dias = Nucleo.semana(estado.tarefas, semanaInicio);
@@ -734,7 +736,7 @@ function render() {
 
 // ---- navegação ----
 function irParaHoje(suave) {
-  if (aba === 'semana') semanaInicio = null; // volta à semana de hoje, com a coluna de hoje à vista
+  if (aba === 'semana') { semanaInicio = null; forcarHoje = true; } // volta à semana de hoje, com a coluna de hoje à vista
   if (aba !== 'linha') { $corpo.scrollTop = 0; render(); return; }
   const sec = $corpo.querySelector('section.dia[data-data="' + diaAtual + '"]');
   if (sec) $corpo.scrollTo({ top: sec.offsetTop, behavior: suave ? 'smooth' : 'auto' });
@@ -868,8 +870,7 @@ function fecharFolha() {
   $app.inert = false;
   if (viradaPendente) {
     viradaPendente = false;
-    render();
-    irParaHoje(false);
+    virar();
   }
   devolverFoco();
 }
@@ -960,13 +961,19 @@ $folhaTopo.addEventListener('pointercancel', soltarAlca);
 // Stub preenchido pela Task 7.
 function abrirAjustes() { console.log('abrirAjustes (em breve)'); }
 
+// Virou o dia: redesenha e vai para hoje. Na Semana, só acompanha se a semana de hoje estava na tela.
+function virar() {
+  const seguia = aba !== 'semana' || semanaInicio === Nucleo.inicioSemana(diaAtual);
+  render();
+  if (seguia) irParaHoje(false);
+}
+
 // Recalcula "hoje" (meia-noite, volta do segundo plano) e o traço "agora".
 // Com a folha aberta, a virada espera ela fechar para não redesenhar nem rolar por baixo dela.
 function tique() {
   if (hojeIso() !== diaAtual) {
     if (folha) { viradaPendente = true; return; }
-    render();
-    irParaHoje(false);
+    virar();
   } else if (aba === 'linha') {
     atualizarAgora();
   }
