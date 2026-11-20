@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { carregarNucleo } from './nucleo.mjs';
 
 const N = carregarNucleo();
@@ -7,8 +8,17 @@ const plano = (x) => JSON.parse(JSON.stringify(x));
 const t = (id, data, hora = null, criadoEm = 0, cat = 'pessoal') =>
   ({ id, titulo: id, data, hora, cat, feito: false, criadoEm });
 
-test('isoDia usa a data local', () => {
-  assert.equal(N.isoDia(new Date(2026, 10, 19, 23, 30)), '2026-11-19');
+test('isoDia usa a data local (fuso de São Paulo, offset negativo)', () => {
+  const nucleo = new URL('./nucleo.mjs', import.meta.url).href;
+  const codigo = `import(${JSON.stringify(nucleo)}).then(({carregarNucleo}) => {
+    const d = new Date(2026, 10, 19, 23, 30);
+    console.log(JSON.stringify([d.getTimezoneOffset(), carregarNucleo().isoDia(d)]));
+  });`;
+  const r = spawnSync(process.execPath, ['-e', codigo], { env: { ...process.env, TZ: 'America/Sao_Paulo' }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const [offset, iso] = JSON.parse(r.stdout);
+  assert.ok(offset > 0, 'TZ não foi aplicado: offset ' + offset);
+  assert.equal(iso, '2026-11-19');
 });
 
 test('deIso devolve meia-noite local', () => {
@@ -92,4 +102,11 @@ test('pontosDia limita a 3 cores e marca mais', () => {
 test('pontosDia: categoria ausente usa a cor padrão', () => {
   const p = plano(N.pontosDia([t('a', '2026-11-19', null, 0, 'sumiu')], '2026-11-19', []));
   assert.deepEqual(p, { cores: ['#5bb8bd'], mais: false });
+});
+
+test('gradeMes de mês de 28 dias começando no domingo tem 35 células', () => {
+  const G = plano(N.gradeMes(2026, 1));
+  assert.equal(G.length, 35);
+  assert.deepEqual(G[0], { data: '2026-02-01', doMes: true });
+  assert.deepEqual(G[34], { data: '2026-03-07', doMes: false });
 });

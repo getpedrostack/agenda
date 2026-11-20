@@ -85,7 +85,7 @@
     const primeiro = isoDia(new Date(ano, mes0, 1));
     const inicio = inicioSemana(primeiro);
     const ultimo = isoDia(new Date(ano, mes0 + 1, 0));
-    const celulas = Math.ceil((diasEntre(inicio, ultimo) + 1) / 7) * 7;
+    const celulas = Math.max(35, Math.ceil((diasEntre(inicio, ultimo) + 1) / 7) * 7);
     return Array.from({ length: celulas }, (_, i) => {
       const data = somaDias(inicio, i);
       return { data, doMes: deIso(data).getMonth() === mes0 };
