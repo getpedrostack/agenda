@@ -88,6 +88,11 @@ button:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
 .mini .t{display:block;font-family:var(--mono);font-size:10px;color:var(--dim)}
 .mini .ti{display:block;font-size:12px;font-weight:700;line-height:1.25;margin-top:2px;overflow-wrap:anywhere}
 .mini.feito .ti{text-decoration:line-through;opacity:.6}
+.mk{flex:none;font-size:11px;font-weight:600;color:var(--dim);margin-left:6px;white-space:nowrap}
+.task .ti .mk{display:inline;font-size:11px}
+.mini .lin{display:flex;align-items:baseline;margin-top:2px;min-width:0}
+.mini .lin .ti{flex:1;min-width:0;margin-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini .lin .mk{margin-left:4px;font-size:10px}
 .livre{flex:1;min-height:60px;width:100%;border:1.5px dashed var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:22px}
 
 /* ---------- mês ---------- */
@@ -365,6 +370,7 @@ textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em +
 
   const LIMITE_NOTA = 500;
   const LIMITE_FOTOS = 6;
+  const LIMITE_DATAURL = 15 * 1024 * 1024; // uma foto reduzida tem ~0,5 MB; acima disso o arquivo é suspeito
   const notaOk = (n) => n === undefined || (typeof n === 'string' && n.length <= LIMITE_NOTA);
   const fotosOk = (f) => f === undefined || (Array.isArray(f) && f.length <= LIMITE_FOTOS &&
     f.every((id) => typeof id === 'string' && id !== '') && new Set(f).size === f.length);
@@ -436,7 +442,7 @@ textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em +
     if (!catsOk(obj.cats)) return { ok: false, erro: 'Backup com categoria inválida.' };
     let fotos = {};
     if (obj.versao === 2) {
-      if (!ehObj(obj.fotos) || !Object.values(obj.fotos).every((v) => typeof v === 'string' && v.startsWith('data:image/'))) {
+      if (!ehObj(obj.fotos) || !Object.values(obj.fotos).every((v) => typeof v === 'string' && v.startsWith('data:image/') && v.length <= LIMITE_DATAURL)) {
         return { ok: false, erro: 'Backup com foto inválida.' };
       }
       fotos = Object.assign({}, obj.fotos);
@@ -691,6 +697,18 @@ function el(tag, classe, texto) {
 }
 const $corpo = document.getElementById('corpo');
 
+// Marcadores depois do título: "📝" com anotação, "📷N" com fotos. O ícone é decorativo; o nome acessível ganha o texto.
+function marcadoresTarefa(t) {
+  const n = (t.fotos || []).length;
+  const temNota = typeof t.nota === 'string' && t.nota !== '';
+  const icones = (temNota ? '📝' : '') + (temNota && n ? ' ' : '') + (n ? '📷' + n : '');
+  const falado = (temNota ? ', com anotação' : '') + (n ? ', ' + plural(n, 'foto', 'fotos') : '');
+  if (!icones) return [];
+  const mk = el('span', 'mk', icones);
+  mk.setAttribute('aria-hidden', 'true');
+  const leitor = el('span', 'so-leitor', falado);
+  return [mk, leitor];
+}
 // Barra de tarefa (usada na Linha e no Mês): texto abre a folha, círculo marca feito.
 function elTarefa(t) {
   const cat = catDe(t);
@@ -702,6 +720,7 @@ function elTarefa(t) {
   abrir.type = 'button';
   abrir.append(el('span', 't', t.hora || '—'));
   const ti = el('span', 'ti', t.titulo);
+  ti.append(...marcadoresTarefa(t));
   if (cat) ti.append(el('small', '', cat.nome + (t.hora ? '' : ' · sem horário')));
   abrir.append(ti);
   abrir.addEventListener('click', () => abrirFolha(t));
@@ -777,6 +796,12 @@ function apagar(id) {
   toast(ok ? 'Compromisso apagado' : MSG_FALHA, {
     rotulo: 'Desfazer',
     ms: 5000,
+    // Definitivo (tempo, outro aviso, fechar): as fotos saem, menos as que algo vivo ainda referencia.
+    aoExpirar: () => {
+      if (!t.fotos || !t.fotos.length) return;
+      const vivas = new Set(idsFotosEmUso());
+      apagarFotosSemEsperar(t.fotos.filter((f) => !vivas.has(f)));
+    },
     acao: () => {
       if (estado.tarefas.some((x) => x.id === t.id)) return;
       estado.tarefas.splice(Math.min(i, estado.tarefas.length), 0, t);
@@ -915,7 +940,9 @@ function elMini(t) {
   b.type = 'button';
   b.dataset.id = t.id;
   b.style.setProperty('--c', cat ? cat.cor : COR_SEM_CAT);
-  b.append(el('span', 't', t.hora || '—'), el('span', 'ti', t.titulo));
+  const lin = el('span', 'lin');
+  lin.append(el('span', 'ti', t.titulo), ...marcadoresTarefa(t));
+  b.append(el('span', 't', t.hora || '—'), lin);
   b.addEventListener('click', () => abrirFolha(t));
   return b;
 }
@@ -1964,6 +1991,7 @@ const $ajustes = document.getElementById('ajustes');
 const $ajCorpo = document.getElementById('ajustes-corpo');
 const $arquivo = document.getElementById('aj-arquivo');
 let ajBackup = null;   // elemento da linha "Último backup"
+let ajTamanho = null;  // elemento da linha "Tamanho aproximado"
 let ajConf = null;     // { caixa, secoes } enquanto a confirmação de importação está aberta
 
 ligarAlca(document.getElementById('ajustes-topo'), $ajustes);
@@ -2030,13 +2058,15 @@ function desenharAjustes() {
   const botoes = el('div', 'aj-botoes');
   const exp = el('button', 'btn-sec', 'Exportar backup');
   exp.type = 'button';
-  exp.addEventListener('click', exportarBackup);
+  exp.addEventListener('click', () => exportarBackup(exp));
   const imp = el('button', 'btn-sec', 'Importar backup');
   imp.type = 'button';
   imp.id = 'aj-importar';
   imp.addEventListener('click', () => $arquivo.click());
   botoes.append(exp, imp);
-  secBk.append(lblBk, ajBackup, botoes);
+  ajTamanho = el('p', 'aj-bk', 'Tamanho aproximado: calculando…');
+  ajTamanho.id = 'aj-tamanho';
+  secBk.append(lblBk, ajBackup, ajTamanho, botoes);
   if (chavesCorrompidas().length) {
     const antigos = el('div', 'aj-antigos');
     const baixar = el('button', 'btn-sec', 'Baixar dados antigos');
@@ -2047,8 +2077,27 @@ function desenharAjustes() {
   }
   $ajCorpo.replaceChildren(secCats, secBk);
   desenharUltimoBackup();
+  const alvo = ajTamanho;
+  Promise.resolve().then(() => calcularTamanho(alvo)); // depois de abrirPainel marcar os Ajustes como abertos
 }
 
+// Soma dos blobs das fotos em uso x 1,37 (base64). Ignora o resultado se os Ajustes fecharam ou foram redesenhados.
+async function calcularTamanho(alvo) {
+  let bytes = 0;
+  try {
+    for (const id of Nucleo.idsFotos(estado.tarefas)) {
+      const b = await Fotos.ler(id);
+      if (b) bytes += b.size;
+    }
+  } catch (e) {
+    console.warn('Agenda: não consegui calcular o tamanho das fotos', e);
+    if (ajTamanho === alvo && alvo.isConnected && painel === $ajustes) alvo.textContent = 'Tamanho aproximado: indisponível';
+    return;
+  }
+  if (ajTamanho !== alvo || !alvo.isConnected || painel !== $ajustes) return;
+  const mb = bytes * 1.37 / (1024 * 1024);
+  alvo.textContent = 'Tamanho aproximado: ' + (mb < 0.1 ? 'menos de 0,1 MB' : mb.toFixed(1).replace('.', ',') + ' MB');
+}
 // Chaves 'agenda.v1.corrompido*' guardadas quando o agenda.v1 estava ilegível, em ordem.
 function chavesCorrompidas() {
   const chaves = [];
@@ -2088,12 +2137,36 @@ function abrirAjustes() {
   abrirPainel($ajustes, {}, document.getElementById('ajustes-titulo')); // sem abrir o teclado sobre o backup
 }
 
-function exportarBackup() {
-  const { nome, conteudo } = Nucleo.exportar(estado, new Date());
-  baixarArquivo(nome, conteudo, 'application/json');
-  gravarArmazenado(CHAVE_BACKUP, new Date().toISOString());
-  desenharUltimoBackup();
-  toast('Backup salvo: ' + nome, { ms: 5000 });
+// Lê do IndexedDB as fotos que as tarefas referenciam e devolve { id: dataURL }. Foto ausente é pulada.
+async function mapaDeFotos(tarefas) {
+  const mapa = {};
+  for (const id of Nucleo.idsFotos(tarefas)) {
+    const blob = await Fotos.ler(id);
+    if (blob) mapa[id] = await Fotos.paraDataUrl(blob);
+  }
+  return mapa;
+}
+let exportando = false;
+async function exportarBackup(botao) {
+  if (exportando) return;
+  exportando = true;
+  const rotulo = botao ? botao.textContent : '';
+  if (botao) { botao.disabled = true; botao.textContent = 'Preparando backup…'; }
+  try {
+    const instantaneo = { tarefas: estado.tarefas, cats: estado.cats };
+    const agora = new Date();
+    const { nome, conteudo } = Nucleo.exportar(instantaneo, agora, await mapaDeFotos(instantaneo.tarefas));
+    baixarArquivo(nome, conteudo, 'application/json');
+    gravarArmazenado(CHAVE_BACKUP, agora.toISOString());
+    if (ajBackup && ajBackup.isConnected) desenharUltimoBackup();
+    toast('Backup salvo: ' + nome, { ms: 5000 });
+  } catch (e) {
+    console.warn('Agenda: backup não preparado', e);
+    toast('Não foi possível preparar o backup.');
+  } finally {
+    exportando = false;
+    if (botao) { botao.disabled = false; botao.textContent = rotulo; }
+  }
 }
 
 // Confirmação de importação, dentro da folha: as outras seções ficam inertes até responder.
@@ -2135,15 +2208,43 @@ function pedirConfirmacao(backup) {
 const CHAVE_ANTES_IMPORTACAO = 'agenda.v1.antesImportacao';
 // Antes de importar, guarda a agenda atual em CHAVE_ANTES_IMPORTACAO (sobrescrita a cada importação)
 // e oferece "Desfazer" no aviso.
-function aplicarImportacao(backup, juntar) {
+let importando = false;
+async function aplicarImportacao(backup, juntar) {
+  if (importando) return;
+  importando = true;
+  try { await importar(backup, juntar); } finally { importando = false; }
+}
+async function importar(backup, juntar) {
   const anterior = estado;
   const antes = anterior.tarefas.length;
+  const novo = juntar ? Nucleo.juntar(anterior, backup) : { tarefas: backup.tarefas, cats: backup.cats };
+  // Fotos primeiro: só as que o estado resultante usa e que ainda não existem. Qualquer falha desfaz tudo.
+  const gravadas = [];
+  const usadas = Nucleo.idsFotos(novo.tarefas).filter((id) => Object.prototype.hasOwnProperty.call(backup.fotos || {}, id));
+  if (usadas.length) {
+    try {
+      const jaTem = new Set(await Fotos.listarIds());
+      for (const id of usadas) {
+        if (jaTem.has(id)) continue;
+        const blob = Fotos.deDataUrl(backup.fotos[id]);
+        await Fotos.guardar(id, blob);
+        gravadas.push(id);
+      }
+    } catch (e) {
+      console.warn('Agenda: fotos do backup não foram gravadas', e);
+      apagarFotosSemEsperar(gravadas);
+      avisarFotos();
+      fecharConfirmacao();
+      return;
+    }
+  }
   if (!gravarArmazenado(CHAVE_ANTES_IMPORTACAO, JSON.stringify(anterior))) {
     console.warn('Agenda: cópia de antes da importação não foi guardada; o Desfazer do aviso ainda vale.');
   }
-  estado = juntar ? Nucleo.juntar(anterior, backup) : { tarefas: backup.tarefas, cats: backup.cats };
+  estado = novo;
   if (!salvar()) {
     estado = anterior;
+    apagarFotosSemEsperar(gravadas);
     toast(MSG_FALHA);
     fecharConfirmacao();
     return;

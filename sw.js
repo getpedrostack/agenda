@@ -2,7 +2,7 @@
    A origem é compartilhada com os outros apps (Brew, Triângulo, Diário, PWR): este SW
    só mexe nos caches com o prefixo 'agenda-shell-'. */
 const PREFIXO = 'agenda-shell-';
-const CACHE = PREFIXO + 'v2';
+const CACHE = PREFIXO + 'v3';
 const ESPERA_REDE = 3000; // documento: depois disso, serve o cache se houver
 const ASSETS = [
   './',

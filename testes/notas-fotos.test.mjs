@@ -83,6 +83,12 @@ test('validarBackup v2', () => {
   }
 });
 
+test('validarBackup recusa data URL gigante (> 15 MB) sem decodificar', () => {
+  const grande = 'data:image/jpeg;base64,' + 'A'.repeat(15 * 1024 * 1024);
+  const r = N.validarBackup({ app: 'agenda', versao: 2, tarefas: [], fotos: { a: grande } });
+  assert.deepEqual(plano(r), { ok: false, erro: 'Backup com foto inválida.' });
+});
+
 test('validarBackup com versao desconhecida', () => {
   for (const versao of [3, 0, '2', null]) {
     const r = N.validarBackup({ app: 'agenda', versao, tarefas: [] });
