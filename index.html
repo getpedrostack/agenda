@@ -431,6 +431,9 @@ textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em +
     return { nome: 'agenda-backup-' + isoDia(agora) + '.json', conteudo: JSON.stringify(dados, null, 2) };
   }
 
+  // Só os formatos que o app produz/aceita, e só base64 de verdade (SVG e afins ficam de fora: seriam um documento ativo).
+  const DATAURL_FOTO = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
   function validarBackup(obj) {
     if (!ehObj(obj) || obj.app !== 'agenda' || !Array.isArray(obj.tarefas)) {
       return { ok: false, erro: 'Este arquivo não é um backup da Agenda.' };
@@ -442,7 +445,7 @@ textarea.fld{resize:none;font-weight:500;line-height:1.4;min-height:calc(4.2em +
     if (!catsOk(obj.cats)) return { ok: false, erro: 'Backup com categoria inválida.' };
     let fotos = {};
     if (obj.versao === 2) {
-      if (!ehObj(obj.fotos) || !Object.values(obj.fotos).every((v) => typeof v === 'string' && v.startsWith('data:image/') && v.length <= LIMITE_DATAURL)) {
+      if (!ehObj(obj.fotos) || !Object.values(obj.fotos).every((v) => typeof v === 'string' && v.length <= LIMITE_DATAURL && DATAURL_FOTO.test(v))) {
         return { ok: false, erro: 'Backup com foto inválida.' };
       }
       fotos = Object.assign({}, obj.fotos);
@@ -617,13 +620,13 @@ const Fotos = (() => {
     });
   }
   function deDataUrl(str) {
-    const m = typeof str === 'string' && /^data:([^;,]+)(;[^,]*)?;base64,([A-Za-z0-9+/]*={0,2})$/.exec(str);
+    const m = typeof str === 'string' && /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(str);
     if (!m) throw new Error('dataurl');
     let bin;
-    try { bin = atob(m[3]); } catch (e) { throw new Error('dataurl'); }
+    try { bin = atob(m[2]); } catch (e) { throw new Error('dataurl'); }
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new Blob([bytes], { type: m[1] });
+    return new Blob([bytes], { type: 'image/' + m[1] }); // sempre um tipo da lista, nunca o que veio no arquivo
   }
 
   return Object.freeze({ novoId, guardar, ler, apagar, listarIds, reduzir, paraDataUrl, deDataUrl, limparOrfas });

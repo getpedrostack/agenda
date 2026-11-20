@@ -95,3 +95,23 @@ test('validarBackup com versao desconhecida', () => {
     assert.deepEqual(plano(r), { ok: false, erro: 'Este arquivo não é um backup da Agenda.' });
   }
 });
+
+test('validarBackup só aceita jpeg/png/webp em base64 (SVG e não-base64 são recusados)', () => {
+  const ruins = [
+    'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+    'data:image/svg+xml,<svg onload=alert(1)>',
+    'data:image/jpeg,xyz',
+    'data:image/jpeg;base64,',
+    'data:image/jpeg;base64,@@@',
+    'data:image/gif;base64,AAAA',
+    'data:text/html;base64,AAAA',
+  ];
+  for (const v of ruins) {
+    const r = N.validarBackup({ app: 'agenda', versao: 2, tarefas: [], fotos: { a: v } });
+    assert.deepEqual(plano(r), { ok: false, erro: 'Backup com foto inválida.' }, v);
+  }
+  for (const t of ['jpeg', 'png', 'webp']) {
+    const r = N.validarBackup({ app: 'agenda', versao: 2, tarefas: [], fotos: { a: 'data:image/' + t + ';base64,AAAA' } });
+    assert.equal(r.ok, true, t);
+  }
+});
