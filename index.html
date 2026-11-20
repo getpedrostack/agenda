@@ -2,10 +2,88 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a1c20">
 <title>Agenda</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cobre:#ba744d;--caramelo:#da9c5e;--pessego:#fad9b8;
+  --bg:#0a1c20;--surface:#0f272c;--surface-2:#14323a;--border:#23474f;--text:#f7efe6;--dim:#b3c0be;
+  --acao:#5bb8bd;--acao-bg:#0f3036;--tinta:#062024;
+  --abas:62px;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible{outline:2px solid var(--acao);outline-offset:2px}
+
+/* ---------- casca ---------- */
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+.top{display:flex;align-items:flex-end;gap:8px;padding:calc(10px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 10px calc(16px + env(safe-area-inset-left))}
+.top .mes{flex:1;min-width:0;font-size:22px;font-weight:900;letter-spacing:-.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top .mes small{display:block;font-size:11px;font-weight:600;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:2px}
+.pill{font-size:12px;font-weight:800;border:1.5px solid var(--acao);color:var(--acao);border-radius:999px;padding:6px 12px;flex-shrink:0}
+.engrenagem{width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:var(--dim);flex-shrink:0;margin-bottom:-4px}
+.engrenagem svg{width:22px;height:22px}
+.corpo{flex:1;position:relative;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:0 calc(12px + env(safe-area-inset-right)) 96px calc(12px + env(safe-area-inset-left));scrollbar-width:none}
+.corpo::-webkit-scrollbar{display:none}
+.tabs{flex-shrink:0;display:flex;height:calc(var(--abas) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--surface);border-top:1px solid var(--border)}
+.tabs button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;font-weight:700;color:var(--dim)}
+.tabs button[aria-current="page"]{color:var(--acao)}
+.tabs i{width:20px;height:14px;border:2px solid currentColor;border-radius:4px;display:block}
+.tabs .t-linha i{border-width:0;border-top:2px solid;border-bottom:2px solid;height:12px;border-radius:0}
+.tabs .t-semana i{background:linear-gradient(90deg,transparent 30%,currentColor 30% 38%,transparent 38% 62%,currentColor 62% 70%,transparent 70%)}
+.tabs .t-mes i{background:radial-gradient(currentColor 1.2px,transparent 1.6px) 0 0/5px 5px}
+.fab{position:fixed;right:calc(16px + env(safe-area-inset-right));bottom:calc(var(--abas) + 14px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:18px;background:var(--acao);color:var(--tinta);font-size:30px;font-weight:500;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:5}
+.embreve{color:var(--dim);text-align:center;padding:80px 0;font-size:14px;font-weight:600}
+
+/* ---------- linha do tempo ---------- */
+.day{display:flex;align-items:center;gap:10px;padding:14px 4px 8px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.dnum{width:30px;height:30px;border-radius:50%;border:2px solid var(--text);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:13px;flex-shrink:0}
+.dlbl{font-weight:800;font-size:15px;flex:1;min-width:0}
+.dlbl em{font-style:normal;color:var(--dim);font-weight:600;font-size:12px;margin-left:6px}
+.day.hoje .dnum{background:var(--acao);border-color:var(--acao);color:var(--tinta)}
+.day.hoje .dlbl{color:var(--acao)}
+.cnt{font-size:11px;color:var(--dim);font-family:var(--mono)}
+.task{display:flex;align-items:center;background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--c,var(--acao));border-radius:12px;margin-bottom:8px;min-width:0}
+.task .abrir{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 0 12px 12px;text-align:left}
+.task .t{font-family:var(--mono);font-size:12px;color:var(--dim);width:40px;flex-shrink:0}
+.task .ti{flex:1;min-width:0;font-weight:700;font-size:14px;line-height:1.25;overflow-wrap:anywhere}
+.task .ti small{display:block;font-weight:500;font-size:11px;color:var(--dim);margin-top:2px}
+.task .ck{width:46px;align-self:stretch;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.task .ck i{width:22px;height:22px;border-radius:50%;border:2px solid var(--border);position:relative;display:block}
+.task.feito{opacity:.5}
+.task.feito .ti{text-decoration:line-through}
+.task.feito .ck i{background:var(--acao);border-color:var(--acao)}
+.task.feito .ck i:after{content:"";position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid var(--tinta);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.gap{width:100%;height:44px;border:1.5px dashed var(--border);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;font-weight:600;margin-bottom:6px}
+.vazio{font-size:11px;color:var(--dim);text-align:center;padding:6px 0 2px;letter-spacing:.5px}
+.agora{display:flex;align-items:center;gap:6px;margin:-2px 0 8px;color:var(--cobre);font-size:10px;font-weight:800;font-family:var(--mono)}
+.agora:after{content:"";flex:1;height:2px;background:var(--cobre);border-radius:2px}
+</style>
 </head>
 <body>
+<div id="app">
+  <header class="top">
+    <div class="mes"><small id="rotulo-aba">Linha do tempo</small><span id="rotulo-mes"></span></div>
+    <button type="button" class="pill" id="bt-hoje">Hoje</button>
+    <button type="button" class="engrenagem" id="bt-ajustes" aria-label="Ajustes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </header>
+  <main class="corpo" id="corpo"></main>
+  <nav class="tabs" aria-label="Visualizações">
+    <button type="button" class="t-linha" data-aba="linha"><i></i>Linha</button>
+    <button type="button" class="t-semana" data-aba="semana"><i></i>Semana</button>
+    <button type="button" class="t-mes" data-aba="mes"><i></i>Mês</button>
+  </nav>
+  <button type="button" class="fab" id="bt-novo" aria-label="Nova tarefa">+</button>
+</div>
 <script id="nucleo">
 // Núcleo puro: datas e montagem das visualizações (sem DOM, sem storage).
 (function () {
@@ -171,6 +249,253 @@
 
   globalThis.Nucleo = { isoDia, deIso, somaDias, inicioSemana, ordenarDia, montarLinha, rotuloLivres, semana, gradeMes, pontosDia, CATS_PADRAO, estadoInicial, carregar, novaTarefa, exportar, validarBackup, juntar };
 })();
+</script>
+<script id="ui">
+// UI: lê/grava o localStorage e desenha a aba atual a partir de `estado`.
+const CHAVE = 'agenda.v1';
+const CHAVE_CORROMPIDO = 'agenda.v1.corrompido';
+const CHAVE_ABA = 'agenda.aba';
+const ABAS = ['linha', 'semana', 'mes'];
+const COR_SEM_CAT = '#5bb8bd';
+const DIAS_LONGOS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const MESES_LONGOS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const ROTULO_ABA = { linha: 'Linha do tempo', semana: 'Semana', mes: 'Calendário' };
+
+// ---- armazenamento ----
+function lerArmazenado(chave) {
+  try { return localStorage.getItem(chave); } catch (e) { console.warn('Agenda: não consegui ler ' + chave, e); return null; }
+}
+function gravarArmazenado(chave, valor) {
+  try { localStorage.setItem(chave, valor); return true; } catch (e) { console.warn('Agenda: não consegui gravar ' + chave, e); return false; }
+}
+
+const boot = (() => {
+  const texto = lerArmazenado(CHAVE);
+  const r = Nucleo.carregar(texto);
+  if (r.corrompido) console.warn('Agenda: agenda.v1 ilegível; abrindo vazio. O texto original será guardado em ' + CHAVE_CORROMPIDO + ' antes da primeira gravação.');
+  return { estado: r.estado, textoCorrompido: r.corrompido ? texto : null };
+})();
+
+let estado = boot.estado;
+let textoCorrompido = boot.textoCorrompido; // texto ruim ainda não guardado à parte
+let aba = ABAS.includes(lerArmazenado(CHAVE_ABA)) ? lerArmazenado(CHAVE_ABA) : 'linha';
+let diaAtual = hojeIso();
+
+// Antes da primeira gravação, guarda o texto corrompido para nunca perdê-lo.
+// Se a chave já guarda outro texto, usa uma chave com carimbo de tempo em vez de sobrescrever.
+function guardarCorrompido() {
+  if (textoCorrompido === null) return true;
+  const atual = lerArmazenado(CHAVE_CORROMPIDO);
+  const chave = !atual || atual === textoCorrompido ? CHAVE_CORROMPIDO : CHAVE_CORROMPIDO + '.' + Date.now();
+  if (!gravarArmazenado(chave, textoCorrompido)) return false;
+  textoCorrompido = null;
+  return true;
+}
+function salvar() {
+  if (!guardarCorrompido()) {
+    console.warn('Agenda: gravação adiada para não apagar o agenda.v1 corrompido.');
+    return false;
+  }
+  return gravarArmazenado(CHAVE, JSON.stringify(estado));
+}
+
+// ---- datas ----
+function hojeIso() { return Nucleo.isoDia(new Date()); }
+function horaAgora() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function nomeMes(iso) {
+  const d = Nucleo.deIso(iso);
+  const ano = d.getFullYear();
+  return MESES_LONGOS[d.getMonth()] + (ano !== new Date().getFullYear() ? ' ' + ano : '');
+}
+function catDe(t) { return estado.cats.find((c) => c.id === t.cat) || null; }
+
+// ---- elementos ----
+function el(tag, classe, texto) {
+  const e = document.createElement(tag);
+  if (classe) e.className = classe;
+  if (texto !== undefined) e.textContent = texto;
+  return e;
+}
+const $corpo = document.getElementById('corpo');
+
+// Barra de tarefa (usada na Linha e no Mês): texto abre a folha, círculo marca feito.
+function elTarefa(t) {
+  const cat = catDe(t);
+  const barra = el('div', 'task' + (t.feito ? ' feito' : ''));
+  barra.dataset.id = t.id;
+  barra.style.setProperty('--c', cat ? cat.cor : COR_SEM_CAT);
+
+  const abrir = el('button', 'abrir');
+  abrir.type = 'button';
+  abrir.append(el('span', 't', t.hora || '—'));
+  const ti = el('span', 'ti', t.titulo);
+  if (cat) ti.append(el('small', '', cat.nome + (t.hora ? '' : ' · sem horário')));
+  abrir.append(ti);
+  abrir.addEventListener('click', () => abrirFolha(t));
+
+  const ck = el('button', 'ck');
+  ck.type = 'button';
+  ck.setAttribute('aria-pressed', t.feito ? 'true' : 'false');
+  ck.setAttribute('aria-label', t.feito ? 'Desmarcar como feita' : 'Marcar como feita');
+  ck.append(el('i'));
+  ck.addEventListener('click', () => alternarFeito(t.id));
+
+  barra.append(abrir, ck);
+  return barra;
+}
+
+function alternarFeito(id) {
+  const t = estado.tarefas.find((x) => x.id === id);
+  if (!t) return;
+  t.feito = !t.feito;
+  salvar();
+  render();
+}
+
+function elFaixaDia(iso, n, ehHoje) {
+  const faixa = el('div', 'day' + (ehHoje ? ' hoje' : ''));
+  faixa.append(el('span', 'dnum', String(Nucleo.deIso(iso).getDate())));
+  const lbl = el('span', 'dlbl', DIAS_LONGOS[Nucleo.deIso(iso).getDay()]);
+  if (ehHoje) lbl.append(el('em', '', 'hoje'));
+  faixa.append(lbl, el('span', 'cnt', String(n)));
+  return faixa;
+}
+
+function elNovaNoDia(iso) {
+  const dow = Nucleo.deIso(iso).getDay();
+  const prep = dow === 0 || dow === 6 ? 'no' : 'na';
+  const bt = el('button', 'gap', '+ tarefa ' + prep + ' ' + DIAS_LONGOS[dow].toLowerCase());
+  bt.type = 'button';
+  bt.addEventListener('click', () => abrirFolha({ data: iso }));
+  return bt;
+}
+
+function elDia(item, hoje) {
+  const sec = el('section', 'dia');
+  sec.dataset.data = item.data;
+  sec.append(elFaixaDia(item.data, item.tarefas.length, item.data === hoje));
+  const lista = el('div', 'tarefas');
+  item.tarefas.forEach((t) => lista.append(elTarefa(t)));
+  sec.append(lista, elNovaNoDia(item.data));
+  return sec;
+}
+
+// Traço "AGORA HH:MM" no dia de hoje, depois das tarefas sem hora e das que já passaram.
+function atualizarAgora() {
+  const lista = $corpo.querySelector('section.dia[data-data="' + diaAtual + '"] .tarefas');
+  if (!lista) return;
+  lista.querySelectorAll('.agora').forEach((x) => x.remove());
+  const hhmm = horaAgora();
+  const doDia = Nucleo.ordenarDia(estado.tarefas.filter((t) => t.data === diaAtual));
+  let i = 0;
+  while (i < doDia.length && (!doDia[i].hora || doDia[i].hora <= hhmm)) i++;
+  lista.insertBefore(el('div', 'agora', 'AGORA ' + hhmm), lista.children[i] || null);
+}
+
+// Espaço no fim para que a faixa de hoje sempre possa subir até o topo.
+function ajustarFim() {
+  const fim = $corpo.querySelector('.fim');
+  const sec = $corpo.querySelector('section.dia[data-data="' + diaAtual + '"]');
+  if (!fim || !sec) return;
+  fim.style.height = '0px';
+  const falta = $corpo.clientHeight - ($corpo.scrollHeight - sec.offsetTop);
+  fim.style.height = Math.max(0, falta) + 'px';
+}
+
+// ---- visualizações ----
+function renderLinha() {
+  const y = $corpo.scrollTop;
+  const frag = document.createDocumentFragment();
+  for (const item of Nucleo.montarLinha(estado.tarefas, diaAtual)) {
+    frag.append(item.tipo === 'dia' ? elDia(item, diaAtual) : el('div', 'vazio', Nucleo.rotuloLivres(item.de, item.ate, item.n)));
+  }
+  frag.append(el('div', 'fim'));
+  $corpo.replaceChildren(frag);
+  atualizarAgora();
+  ajustarFim();
+  $corpo.scrollTop = y;
+}
+function renderSemana() { $corpo.replaceChildren(el('p', 'embreve', 'Em breve')); }
+function renderMes() { $corpo.replaceChildren(el('p', 'embreve', 'Em breve')); }
+
+function atualizarCabecalho() {
+  document.getElementById('rotulo-aba').textContent = ROTULO_ABA[aba];
+  const iso = aba === 'linha' ? diaNoTopo() : diaAtual;
+  const d = Nucleo.deIso(iso);
+  document.getElementById('rotulo-mes').textContent = aba === 'mes' ? MESES_LONGOS[d.getMonth()] + ' ' + d.getFullYear() : nomeMes(iso);
+}
+// Data da faixa de dia mais próxima do topo da rolagem (a última que já passou do topo).
+function diaNoTopo() {
+  const topo = $corpo.scrollTop + 8;
+  let iso = null;
+  for (const sec of $corpo.querySelectorAll('section.dia')) {
+    if (iso !== null && sec.offsetTop > topo) break;
+    iso = sec.dataset.data;
+  }
+  return iso || diaAtual;
+}
+
+function render() {
+  diaAtual = hojeIso();
+  document.querySelectorAll('.tabs button').forEach((b) => {
+    if (b.dataset.aba === aba) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  if (aba === 'linha') renderLinha();
+  else if (aba === 'semana') renderSemana();
+  else renderMes();
+  atualizarCabecalho();
+}
+
+// ---- navegação ----
+function irParaHoje(suave) {
+  if (aba !== 'linha') { render(); return; }
+  const sec = $corpo.querySelector('section.dia[data-data="' + diaAtual + '"]');
+  if (sec) $corpo.scrollTo({ top: sec.offsetTop, behavior: suave ? 'smooth' : 'auto' });
+  atualizarCabecalho();
+}
+function trocarAba(nova) {
+  if (!ABAS.includes(nova)) return;
+  aba = nova;
+  gravarArmazenado(CHAVE_ABA, aba);
+  $corpo.scrollTop = 0;
+  render();
+  irParaHoje(false);
+}
+
+// Stubs preenchidos pelas próximas tarefas.
+function abrirFolha(alvo) { console.log('abrirFolha (em breve)', alvo); }
+function abrirAjustes() { console.log('abrirAjustes (em breve)'); }
+
+// Recalcula "hoje" (meia-noite, volta do segundo plano) e o traço "agora".
+function tique() {
+  if (hojeIso() !== diaAtual) {
+    render();
+    irParaHoje(false);
+  } else if (aba === 'linha') {
+    atualizarAgora();
+  }
+}
+
+// ---- início ----
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => trocarAba(b.dataset.aba)));
+document.getElementById('bt-hoje').addEventListener('click', () => irParaHoje(true));
+document.getElementById('bt-ajustes').addEventListener('click', () => abrirAjustes());
+document.getElementById('bt-novo').addEventListener('click', () => abrirFolha({ data: hojeIso() }));
+let cabecalhoPendente = false;
+$corpo.addEventListener('scroll', () => {
+  if (aba !== 'linha' || cabecalhoPendente) return;
+  cabecalhoPendente = true;
+  requestAnimationFrame(() => { cabecalhoPendente = false; atualizarCabecalho(); });
+}, { passive: true });
+addEventListener('resize', () => { if (aba === 'linha') ajustarFim(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tique(); });
+setInterval(tique, 60000);
+
+render();
+irParaHoje(false);
 </script>
 </body>
 </html>
